@@ -26,6 +26,3 @@ Unduh dan pasang file `StreakWok.apk` langsung ke perangkat Android Anda.
 - **Cloud Backend:** Firebase Authentication & Firestore
 
 ---
-
-## 👥 Authors
-- Tim Pengembang StreakWOK
