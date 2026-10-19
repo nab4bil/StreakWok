@@ -31,7 +31,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       SnackBar(
         content: Text(
           _isRudiCompleted
-              ? 'Day 1 Completed! Rudi finished. Group streak flame is burning bright! 🔥'
+              ? 'Day 14 Completed! Rudi finished. Group streak flame is burning bright! 🔥'
               : 'Reset to Rudi Pending. Streak flame is dimmed gray.',
         ),
         duration: const Duration(seconds: 2),
@@ -108,14 +108,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
 
-            // Scrollable Timeline Content
+            // Scrollable Timeline Content (Day 14 to Day 17 Prototype Sample)
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                itemCount: 30,
+                itemCount: 4,
                 itemBuilder: (context, index) {
-                  final dayNumber = index + 1;
+                  final dayNumber = 14 + index;
                   return _buildTimelineStep(dayNumber);
                 },
               ),
@@ -127,9 +127,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildTimelineStep(int day) {
-    final isToday = day == 1;
-    final isRestDay = [4, 7, 11, 15, 18, 21, 25, 28].contains(day);
-    final isFinale = day == 30;
+    final isToday = day == 14;
+    final isRestDay = day == 16;
+    final isFinale = false;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
