@@ -1,0 +1,22 @@
+# Android & Gradle
+.gradle/
+build/
+**/build/
+*.iml
+.idea/
+local.properties
+.cxx/
+captures/
+
+# Dart & Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# Node / Tunnel temporary
+node_modules/
+
+# OS files
+Thumbs.db
+.DS_Store

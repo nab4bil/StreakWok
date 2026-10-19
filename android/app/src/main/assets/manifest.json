@@ -1,0 +1,26 @@
+{
+  "name": "StreakWok",
+  "short_name": "StreakWok",
+  "description": "Group Workout Streak & Habit Tracker",
+  "id": "/streakwok-app",
+  "start_url": "dashboard_screen.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FAFCFB",
+  "theme_color": "#FAFCFB",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
