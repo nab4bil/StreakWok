@@ -26,3 +26,7 @@ Unduh dan pasang file `StreakWok.apk` langsung ke perangkat Android Anda.
 - **Cloud Backend:** Firebase Authentication & Firestore
 
 ---
+
+## Video Youtube
+Video youtube dapat diakses di link bawah ini:
+https://youtu.be/Uq-pS1367vs
