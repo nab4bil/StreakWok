@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "813546439317",
+    "project_id": "streakwok",
+    "storage_bucket": "streakwok.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:813546439317:android:e35e3e3cc0717d5853519c",
+        "android_client_info": {
+          "package_name": "com.example.streakwok"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "813546439317-1h8dvn2dahqqdajfoudhgi38jfajb7f8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.streakwok",
+            "certificate_hash": "9d52b6d8bb23a49148d1d55566df6d7e87b292d8"
+          }
+        },
+        {
+          "client_id": "813546439317-38rvn3s401il3f701q2dl0lfj6b0t1cb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJDb6-zQCwG87G8M2swpIaRrXv23JqLto"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "813546439317-38rvn3s401il3f701q2dl0lfj6b0t1cb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

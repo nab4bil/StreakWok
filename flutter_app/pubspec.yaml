@@ -10,10 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Firebase Services (Architecture per SDD)
+  # Firebase Services & Google Sign-In (Official SDD Architecture)
   firebase_core: ^2.24.2
   firebase_auth: ^4.16.0
   cloud_firestore: ^4.14.0
+  google_sign_in: ^6.2.1
 
   # Computer Vision & Sensor Pipelines (MediaPipe via Google ML Kit)
   google_mlkit_pose_detection: ^0.10.0
@@ -33,5 +34,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/icons/
