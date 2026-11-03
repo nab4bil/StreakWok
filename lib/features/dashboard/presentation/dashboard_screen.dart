@@ -484,7 +484,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             } else if (plan.dayNumber == WorkoutPlanRepository.currentActiveDay) {
               // Active Day (Day 14 - Today)
               rowKey = _day14Key;
-              nodeWidget = _buildActiveNode();
+              nodeWidget = widget.isUserCompleted
+                  ? _buildCompletedNode()
+                  : _buildActiveNode();
               cardWidget = _buildDay14Card();
             } else {
               // Upcoming Days (15 - 30)
@@ -552,19 +554,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       width: 24,
       height: 24,
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F9F3),
+      decoration: const BoxDecoration(
+        color: Color(0xFF00D09E),
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFF00D09E), width: 2),
       ),
-      child: Center(
-        child: Container(
-          width: 8,
-          height: 8,
-          decoration: const BoxDecoration(
-            color: Color(0xFF00D09E),
-            shape: BoxShape.circle,
-          ),
+      child: const Center(
+        child: Icon(
+          Icons.check_rounded,
+          color: Colors.white,
+          size: 16,
         ),
       ),
     );
@@ -574,19 +572,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       width: 24,
       height: 24,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F4FF),
+      decoration: const BoxDecoration(
+        color: Color(0xFF3B82F6),
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFF93C5FD), width: 2),
       ),
-      child: Center(
-        child: Container(
-          width: 8,
-          height: 8,
-          decoration: const BoxDecoration(
-            color: Color(0xFF3B82F6),
-            shape: BoxShape.circle,
-          ),
+      child: const Center(
+        child: Icon(
+          Icons.check_rounded,
+          color: Colors.white,
+          size: 16,
         ),
       ),
     );
@@ -615,7 +609,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // COMPLETED CARD (Hari 1 - 13 selain Rest Day)
-  // Strictly ZERO CHECKMARK: Menggunakan teks badge "Completed"
+  // Tanpa teks completed; tanda selesai direpresentasikan oleh node centang di sebelah card
   Widget _buildCompletedCard(WorkoutDayPlan plan) {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -631,33 +625,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      'Day ${plan.dayNumber}',
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1A1D1E),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F9F3),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'Completed',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF009E74),
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Day ${plan.dayNumber}',
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A1D1E),
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -843,35 +817,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      'Day $day',
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF3B82F6),
-                      ),
-                    ),
-                    if (isPast) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDBEAFE),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'Rest Day',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF2563EB),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                Text(
+                  'Day $day',
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF3B82F6),
+                  ),
                 ),
                 const SizedBox(height: 3),
                 const Text(
