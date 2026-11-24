@@ -60,7 +60,7 @@ void main() {
 
       // Expect bottom sheet with Manage Members
       expect(find.text('Manage Members'), findsOneWidget);
-      expect(find.text('Leader Mode'), findsOneWidget);
+      expect(find.text('Select a member to remove from this streak group.'), findsOneWidget);
 
       // Current user is displayed as "You"
       expect(find.text('You'), findsOneWidget);

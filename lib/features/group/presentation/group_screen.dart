@@ -253,9 +253,9 @@ class _GroupScreenState extends State<GroupScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Row(
+                    const Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text(
                             'Manage Members',
                             style: TextStyle(
@@ -265,41 +265,12 @@ class _GroupScreenState extends State<GroupScreen> {
                             ),
                           ),
                         ),
-                        // Role toggle for testing/demo
-                        GestureDetector(
-                          key: const Key('sheet_role_toggle'),
-                          onTap: () {
-                            setState(() {
-                              _isLeaderMode = !_isLeaderMode;
-                              _initMembers();
-                            });
-                            setSheetState(() {});
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: _isLeaderMode ? const Color(0xFFE8F9F3) : const Color(0xFFF3F4F6),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _isLeaderMode ? const Color(0xFF00D09E) : const Color(0xFFE5E7EB),
-                              ),
-                            ),
-                            child: Text(
-                              _isLeaderMode ? 'Leader Mode' : 'Member Mode',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: _isLeaderMode ? const Color(0xFF007A58) : const Color(0xFF6B7280),
-                              ),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
                       _isLeaderMode
-                          ? 'Select a member to remove from ${widget.groupName}.'
+                          ? 'Select a member to remove from this streak group.'
                           : 'You are currently a Member. Only leaders can remove members.',
                       style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                     ),
