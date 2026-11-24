@@ -21,6 +21,8 @@ class GroupScreen extends StatefulWidget {
 
   final int currentActiveDay;
   final int streakDays;
+  final int? initialRestoresLeft;
+  final bool? isPastDeadline;
 
   const GroupScreen({
     super.key,
@@ -34,6 +36,8 @@ class GroupScreen extends StatefulWidget {
     this.inviteCode = 'WOK-882',
     this.memberCount = 3,
     this.maxMembers = 4,
+    this.initialRestoresLeft,
+    this.isPastDeadline,
     this.onBackPressed,
     this.onHistoryTap,
     this.onJoinGroup,
@@ -66,7 +70,7 @@ class GroupMemberItem {
   });
 }
 
-class _GroupScreenState extends State<GroupScreen> {
+class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStateMixin {
   String _selectedPlan = 'Intermediate';
 
   // State untuk Join/Create Tab (saat hasGroup == false)
@@ -80,12 +84,31 @@ class _GroupScreenState extends State<GroupScreen> {
 
   late bool _isLeaderMode;
   late List<GroupMemberItem> _members;
+  late int _restoresLeft;
+  bool _isStreakRestored = false;
+  bool _isPro = false;
+
+  late AnimationController _jiggleController;
+  late Animation<double> _jiggleAnimation;
 
   @override
   void initState() {
     super.initState();
     _isLeaderMode = widget.isLeader;
+    _restoresLeft = widget.initialRestoresLeft ?? 3;
     _initMembers();
+
+    _jiggleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _jiggleAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween<double>(begin: 0.0, end: -0.15).chain(CurveTween(curve: Curves.easeOut)), weight: 15),
+      TweenSequenceItem(tween: Tween<double>(begin: -0.15, end: 0.15).chain(CurveTween(curve: Curves.easeInOut)), weight: 25),
+      TweenSequenceItem(tween: Tween<double>(begin: 0.15, end: -0.10).chain(CurveTween(curve: Curves.easeInOut)), weight: 25),
+      TweenSequenceItem(tween: Tween<double>(begin: -0.10, end: 0.08).chain(CurveTween(curve: Curves.easeInOut)), weight: 20),
+      TweenSequenceItem(tween: Tween<double>(begin: 0.08, end: 0.0).chain(CurveTween(curve: Curves.easeIn)), weight: 15),
+    ]).animate(_jiggleController);
   }
 
   @override
@@ -370,6 +393,7 @@ class _GroupScreenState extends State<GroupScreen> {
 
   @override
   void dispose() {
+    _jiggleController.dispose();
     _joinCodeController.dispose();
     _createNameController.dispose();
     super.dispose();
@@ -581,6 +605,307 @@ class _GroupScreenState extends State<GroupScreen> {
     );
   }
 
+  void _onRestoreStreakTapped() {
+    if (_restoresLeft > 0) {
+      setState(() {
+        _restoresLeft--;
+        _isStreakRestored = true;
+      });
+      HapticFeedback.mediumImpact();
+      _jiggleController.forward(from: 0.0);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Streak restored! $_restoresLeft restores left this month.'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: const Color(0xFF1A1D1E),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } else {
+      _showUpgradeProModal();
+    }
+  }
+
+  void _showUpgradeProModal() {
+    int selectedPlanIndex = 1; // 0 = Monthly, 1 = Yearly (Best Value)
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.workspace_premium_rounded,
+                        color: Color(0xFFFF9800),
+                        size: 26,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'StreakWok Pro',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF1A1D1E),
+                            ),
+                          ),
+                          Text(
+                            'Never lose your group streak again',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildProBenefitItem(
+                  Icons.all_inclusive_rounded,
+                  'Unlimited Streak Restores',
+                  'Never worry about missing a day with squad',
+                ),
+                _buildProBenefitItem(
+                  Icons.groups_rounded,
+                  '10 Members Group Capacity',
+                  'Workout with your entire squad (Free limit: 4)',
+                ),
+                _buildProBenefitItem(
+                  Icons.insights_rounded,
+                  'AI Movement Precision Analytics',
+                  'Detailed pose form score breakdown',
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPlanOption(
+                        title: 'Monthly',
+                        price: 'Rp 29.000',
+                        period: '/ month',
+                        isSelected: selectedPlanIndex == 0,
+                        onTap: () => setModalState(() => selectedPlanIndex = 0),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildPlanOption(
+                        title: 'Yearly',
+                        price: 'Rp 199.000',
+                        period: '/ year',
+                        badge: 'Save 40%',
+                        isSelected: selectedPlanIndex == 1,
+                        onTap: () => setModalState(() => selectedPlanIndex = 1),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    key: const Key('confirm_upgrade_pro_btn'),
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      setState(() {
+                        _isPro = true;
+                        _restoresLeft = 3;
+                        _isStreakRestored = true;
+                      });
+                      HapticFeedback.mediumImpact();
+                      _jiggleController.forward(from: 0.0);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Upgraded to StreakWok Pro! Streak revived & unlimited restores unlocked.'),
+                          duration: Duration(seconds: 3),
+                          backgroundColor: Color(0xFF1A1D1E),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00D09E),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Upgrade to Pro',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Center(
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(sheetContext).pop(),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        'Maybe Later',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildProBenefitItem(IconData icon, String title, String desc) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F9F3),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: const Color(0xFF00D09E)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1D1E),
+                  ),
+                ),
+                Text(
+                  desc,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanOption({
+    required String title,
+    required String price,
+    required String period,
+    String? badge,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFE8F9F3) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE5E7EB),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: isSelected ? const Color(0xFF007A58) : const Color(0xFF1A1D1E),
+                  ),
+                ),
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF5722),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      badge,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              price,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF1A1D1E),
+              ),
+            ),
+            Text(
+              period,
+              style: const TextStyle(fontSize: 10, color: Color(0xFF6B7280)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showLeaveGroupDialog() {
     showDialog(
       context: context,
@@ -675,7 +1000,9 @@ class _GroupScreenState extends State<GroupScreen> {
     final streakDays = widget.streakDays;
     final isDone = widget.isUserCompleted;
     final bool allDone = _members.isNotEmpty && _members.every((m) => m.isDone);
-    final bool isStreakLit = allDone;
+    final bool isPast13 = widget.isPastDeadline ?? (DateTime.now().hour >= 13);
+    final bool isStreakBroken = !allDone && isPast13 && !_isStreakRestored;
+    final bool isStreakLit = allDone || _isStreakRestored;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFCFB),
@@ -735,54 +1062,111 @@ class _GroupScreenState extends State<GroupScreen> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(
-                                    widget.groupName,
-                                    style: const TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xFF1A1D1E),
-                                      letterSpacing: -0.4,
-                                    ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        widget.groupName,
+                                        style: const TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w900,
+                                          color: Color(0xFF1A1D1E),
+                                          letterSpacing: -0.4,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        widget.isLeader ? 'Started Today' : 'Started Oct 4, 2026',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: Color(0xFF8C949D),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    widget.isLeader ? 'Started Today' : 'Started Oct 4, 2026',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF8C949D),
+                                  AnimatedBuilder(
+                                    animation: _jiggleAnimation,
+                                    builder: (context, child) {
+                                      final scale = 1.0 + (_jiggleController.value > 0
+                                          ? (0.28 * (1.0 - ((_jiggleController.value - 0.5).abs() * 2)))
+                                          : 0.0);
+                                      return Transform.scale(
+                                        scale: scale,
+                                        child: Transform.rotate(
+                                          angle: _jiggleAnimation.value,
+                                          child: child,
+                                        ),
+                                      );
+                                    },
+                                    child: Column(
+                                      children: [
+                                        SizedBox(
+                                          width: 52,
+                                          height: 52,
+                                          child: CustomPaint(
+                                            painter: _TikTokFlamePainter(isLit: isStreakLit),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '$streakDays',
+                                          style: TextStyle(
+                                            fontSize: 26,
+                                            fontWeight: FontWeight.w900,
+                                            color: isStreakLit ? const Color(0xFFFF5722) : const Color(0xFF9CA3AF),
+                                            letterSpacing: -0.5,
+                                            height: 1.0,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
                               ),
-                              Column(
-                                children: [
-                                  SizedBox(
-                                    width: 52,
-                                    height: 52,
-                                    child: CustomPaint(
-                                      painter: _TikTokFlamePainter(isLit: isStreakLit),
+                              if (isStreakBroken) ...[
+                                const SizedBox(height: 12),
+                                const Divider(height: 1, color: Color(0xFFF1F5F3)),
+                                const SizedBox(height: 10),
+                                GestureDetector(
+                                  key: const Key('restore_streak_btn'),
+                                  onTap: _onRestoreStreakTapped,
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF00D09E),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: const [
+                                        Icon(
+                                          Icons.local_fire_department_rounded,
+                                          size: 18,
+                                          color: Colors.white,
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Restore Streak',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                            letterSpacing: 0.2,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '$streakDays',
-                                    style: TextStyle(
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.w900,
-                                      color: isStreakLit ? const Color(0xFFFF5722) : const Color(0xFF9CA3AF),
-                                      letterSpacing: -0.5,
-                                      height: 1.0,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -862,7 +1246,31 @@ class _GroupScreenState extends State<GroupScreen> {
                             ),
                             const SizedBox(width: 6),
                             Expanded(
-                              child: _buildStatCard('Restores Left', '3 / 3'),
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (isStreakBroken) {
+                                    _onRestoreStreakTapped();
+                                  } else if (_restoresLeft == 0) {
+                                    _showUpgradeProModal();
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(_isPro
+                                            ? 'StreakWok Pro: Unlimited restores active!'
+                                            : 'You have $_restoresLeft / 3 streak restores left this month.'),
+                                        duration: const Duration(seconds: 2),
+                                        backgroundColor: const Color(0xFF1A1D1E),
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: _buildStatCard(
+                                  'Restores Left',
+                                  _isPro ? 'Unlimited' : '$_restoresLeft / 3',
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -945,7 +1353,7 @@ class _GroupScreenState extends State<GroupScreen> {
                                         width: 18,
                                         height: 18,
                                         child: CustomPaint(
-                                          painter: _TikTokFlamePainter(isLit: isDone),
+                                          painter: _TikTokFlamePainter(isLit: isStreakLit),
                                         ),
                                       ),
                                       const SizedBox(width: 6),
