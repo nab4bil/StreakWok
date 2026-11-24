@@ -12,6 +12,8 @@ class UserAccountProgress {
   final String inviteCode;
   final int memberCount;
   final int maxMembers;
+  final bool isPro;
+  final int restoresLeft;
 
   const UserAccountProgress({
     required this.accountKey,
@@ -24,6 +26,8 @@ class UserAccountProgress {
     this.inviteCode = 'WOK-882',
     this.memberCount = 3,
     this.maxMembers = 4,
+    this.isPro = false,
+    this.restoresLeft = 3,
   });
 
   UserAccountProgress copyWith({
@@ -37,6 +41,8 @@ class UserAccountProgress {
     String? inviteCode,
     int? memberCount,
     int? maxMembers,
+    bool? isPro,
+    int? restoresLeft,
   }) {
     return UserAccountProgress(
       accountKey: accountKey ?? this.accountKey,
@@ -49,6 +55,8 @@ class UserAccountProgress {
       inviteCode: inviteCode ?? this.inviteCode,
       memberCount: memberCount ?? this.memberCount,
       maxMembers: maxMembers ?? this.maxMembers,
+      isPro: isPro ?? this.isPro,
+      restoresLeft: restoresLeft ?? this.restoresLeft,
     );
   }
 }
@@ -95,8 +103,14 @@ class UserProgressService {
         hasGroup: false,
         groupName: 'gerup ketat',
         isLeader: false,
+        isPro: false,
+        restoresLeft: 3,
       );
     }
+
+    final isPro = prefs.getBool('progress_${accountKey}_is_pro') ?? false;
+    final defaultRestores = isPro ? 5 : 3;
+    final defaultMaxMembers = isPro ? 10 : 4;
 
     return UserAccountProgress(
       accountKey: accountKey,
@@ -108,7 +122,9 @@ class UserProgressService {
       isLeader: prefs.getBool('progress_${accountKey}_is_leader') ?? false,
       inviteCode: prefs.getString('progress_${accountKey}_invite_code') ?? 'WOK-882',
       memberCount: prefs.getInt('progress_${accountKey}_member_count') ?? 3,
-      maxMembers: prefs.getInt('progress_${accountKey}_max_members') ?? 4,
+      maxMembers: prefs.getInt('progress_${accountKey}_max_members') ?? defaultMaxMembers,
+      isPro: isPro,
+      restoresLeft: prefs.getInt('progress_${accountKey}_restores_left') ?? defaultRestores,
     );
   }
 
@@ -124,5 +140,7 @@ class UserProgressService {
     await prefs.setString('progress_${key}_invite_code', progress.inviteCode);
     await prefs.setInt('progress_${key}_member_count', progress.memberCount);
     await prefs.setInt('progress_${key}_max_members', progress.maxMembers);
+    await prefs.setBool('progress_${key}_is_pro', progress.isPro);
+    await prefs.setInt('progress_${key}_restores_left', progress.restoresLeft);
   }
 }

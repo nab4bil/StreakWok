@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../auth/presentation/login_screen.dart';
@@ -7,12 +8,18 @@ class ProfileScreen extends StatelessWidget {
   final String userName;
   final bool hasGroup;
   final String groupName;
+  final bool isPro;
+  final int restoresLeft;
+  final VoidCallback? onUpgradePro;
 
   const ProfileScreen({
     super.key,
     required this.userName,
     this.hasGroup = false,
     this.groupName = 'gerup ketat',
+    this.isPro = false,
+    this.restoresLeft = 3,
+    this.onUpgradePro,
   });
 
   void _handleLogout(BuildContext context) {
@@ -73,33 +80,21 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFFAFCFB),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
           children: [
-            // Top Header (Identical style to prototype)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: const Text(
-                'Me',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1A1D1E),
-                  letterSpacing: -0.4,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Profile Hero Card
+            // Profile Hero Card (Integrated with Pro status per UC-03)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                border: Border.all(
+                  color: isPro ? const Color(0xFF00D09E).withOpacity(0.4) : const Color(0xFFE6ECE8),
+                  width: 1.5,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
+                    color: isPro ? const Color(0xFF00D09E).withOpacity(0.04) : Colors.black.withOpacity(0.03),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -120,6 +115,8 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
+
+                  // Profile Name (Clean, without redundant badge)
                   Text(
                     userName,
                     style: const TextStyle(
@@ -129,6 +126,85 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
+
+                  // Below profile name: (Pro Active) or Upgrade Action
+                  if (isPro) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.verified_rounded, size: 14, color: Color(0xFF00A87A)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Pro Active',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF00A87A),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9FBFA),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE6ECE8)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$restoresLeft / 5 Restores',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Text('•', style: TextStyle(color: Color(0xFF9CA3AF))),
+                          ),
+                          const Text(
+                            '10 Members Capacity',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF00A87A)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 6),
+                    InkWell(
+                      key: const Key('profile_upgrade_pro_btn'),
+                      onTap: () => _showUpgradeProModal(context),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8FDF5),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF00D09E), width: 1.2),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF00A87A)),
+                            SizedBox(width: 6),
+                            Text(
+                              'Upgrade to Pro • Rp 29.000',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF00A87A),
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(Icons.arrow_forward_ios_rounded, size: 10, color: Color(0xFF00A87A)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -177,16 +253,17 @@ class ProfileScreen extends StatelessWidget {
               child: Column(
                 children: [
                   _buildDetailRow(
-                    icon: Icons.person_outline_rounded,
-                    label: 'Display Name',
-                    value: userName,
+                    icon: Icons.workspace_premium_rounded,
+                    label: 'Account Tier',
+                    value: isPro ? 'StreakWok Pro' : 'Free Tier',
+                    valueColor: isPro ? const Color(0xFF00A87A) : const Color(0xFF6B7280),
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F3)),
                   _buildDetailRow(
                     icon: Icons.group_outlined,
                     label: 'Group Membership',
                     value: hasGroup ? groupName : 'No Group Joined',
-                    valueColor: hasGroup ? const Color(0xFF00A87A) : const Color(0xFF9CA3AF),
+                    valueColor: const Color(0xFF1A1D1E),
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F3)),
                   _buildDetailRow(
@@ -306,6 +383,258 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showUpgradeProModal(BuildContext context) {
+    int selectedPlanIndex = 1; // Default yearly
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5E7EB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.workspace_premium_rounded,
+                      color: Color(0xFFFF9800),
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'StreakWok Pro',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF1A1D1E),
+                          ),
+                        ),
+                        Text(
+                          'Never lose your group streak again',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildProBenefitItem(
+                Icons.replay_rounded,
+                '5 Streak Restores per Month',
+                'Extra chances to keep your group streak alive',
+              ),
+              _buildProBenefitItem(
+                Icons.groups_rounded,
+                '10 Members Group Capacity',
+                'Workout with your entire squad',
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildPlanOption(
+                      title: 'Monthly',
+                      price: 'Rp 29.000',
+                      period: '/ month',
+                      isSelected: selectedPlanIndex == 0,
+                      onTap: () => setModalState(() => selectedPlanIndex = 0),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildPlanOption(
+                      title: 'Yearly',
+                      price: 'Rp 199.000',
+                      period: '/ year',
+                      badge: 'Save 40%',
+                      isSelected: selectedPlanIndex == 1,
+                      onTap: () => setModalState(() => selectedPlanIndex = 1),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  key: const Key('confirm_upgrade_pro_btn'),
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    onUpgradePro?.call();
+                    HapticFeedback.mediumImpact();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Upgraded to StreakWok Pro! 5 restores per month & 10-member capacity unlocked.'),
+                        duration: Duration(seconds: 3),
+                        backgroundColor: Color(0xFF1A1D1E),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00D09E),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Upgrade to Pro',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProBenefitItem(IconData icon, String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8FDF5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: const Color(0xFF00A87A)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1D1E),
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanOption({
+    required String title,
+    required String price,
+    required String period,
+    String? badge,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFE8FDF5) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE5E7EB),
+            width: isSelected ? 2 : 1.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? const Color(0xFF00A87A) : const Color(0xFF4B5563),
+                  ),
+                ),
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9800),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      badge,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              price,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF1A1D1E),
+              ),
+            ),
+            Text(
+              period,
+              style: const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF)),
+            ),
+          ],
+        ),
       ),
     );
   }
