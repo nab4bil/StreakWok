@@ -17,6 +17,10 @@ class GroupScreen extends StatefulWidget {
   final ValueChanged<String>? onJoinGroup;
   final Function(String name, String difficulty, int capacity)? onCreateGroup;
   final VoidCallback? onLeaveGroup;
+  final Function(String memberName, int remainingCount)? onKickMember;
+
+  final int currentActiveDay;
+  final int streakDays;
 
   const GroupScreen({
     super.key,
@@ -25,6 +29,8 @@ class GroupScreen extends StatefulWidget {
     this.hasGroup = true,
     this.groupName = 'gerup ketat',
     this.isLeader = false,
+    this.currentActiveDay = 1,
+    this.streakDays = 0,
     this.inviteCode = 'WOK-882',
     this.memberCount = 3,
     this.maxMembers = 4,
@@ -33,10 +39,31 @@ class GroupScreen extends StatefulWidget {
     this.onJoinGroup,
     this.onCreateGroup,
     this.onLeaveGroup,
+    this.onKickMember,
   });
 
   @override
   State<GroupScreen> createState() => _GroupScreenState();
+}
+
+class GroupMemberItem {
+  final String id;
+  final String initials;
+  final String name;
+  final String role;
+  final bool isLeader;
+  final bool isDone;
+  final bool isCurrentUser;
+
+  GroupMemberItem({
+    required this.id,
+    required this.initials,
+    required this.name,
+    required this.role,
+    required this.isLeader,
+    required this.isDone,
+    this.isCurrentUser = false,
+  });
 }
 
 class _GroupScreenState extends State<GroupScreen> {
@@ -50,6 +77,325 @@ class _GroupScreenState extends State<GroupScreen> {
   int _createCapacity = 4;
   String? _joinFeedback;
   bool _isJoinError = false;
+
+  late bool _isLeaderMode;
+  late List<GroupMemberItem> _members;
+
+  @override
+  void initState() {
+    super.initState();
+    _isLeaderMode = widget.isLeader;
+    _initMembers();
+  }
+
+  @override
+  void didUpdateWidget(covariant GroupScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isLeader != widget.isLeader ||
+        oldWidget.isUserCompleted != widget.isUserCompleted ||
+        oldWidget.userName != widget.userName) {
+      _isLeaderMode = widget.isLeader;
+      _initMembers();
+    }
+  }
+
+  void _initMembers() {
+    final currentName = widget.userName.trim().toLowerCase();
+    if (_isLeaderMode) {
+      _members = [
+        GroupMemberItem(
+          id: 'leader_me',
+          initials: _getInitials(widget.userName),
+          name: currentName,
+          role: 'Leader',
+          isLeader: true,
+          isCurrentUser: true,
+          isDone: widget.isUserCompleted,
+        ),
+        GroupMemberItem(
+          id: 'm1',
+          initials: currentName == 'tono hardija' ? 'AM' : 'TH',
+          name: currentName == 'tono hardija' ? 'ambaroni' : 'tono hardija',
+          role: 'Member',
+          isLeader: false,
+          isDone: true,
+        ),
+        GroupMemberItem(
+          id: 'm2',
+          initials: 'MB',
+          name: 'mahmud buah',
+          role: 'Member',
+          isLeader: false,
+          isDone: false, // Member belum latihan -> streak padam
+        ),
+      ];
+    } else {
+      _members = [
+        GroupMemberItem(
+          id: 'm_leader',
+          initials: currentName == 'tono hardija' ? 'AM' : 'TH',
+          name: currentName == 'tono hardija' ? 'ambaroni' : 'tono hardija',
+          role: 'Leader',
+          isLeader: true,
+          isDone: true,
+        ),
+        GroupMemberItem(
+          id: 'user_me',
+          initials: _getInitials(widget.userName),
+          name: currentName,
+          role: 'Member',
+          isLeader: false,
+          isCurrentUser: true,
+          isDone: widget.isUserCompleted,
+        ),
+        GroupMemberItem(
+          id: 'm_other',
+          initials: 'MB',
+          name: 'mahmud buah',
+          role: 'Member',
+          isLeader: false,
+          isDone: true,
+        ),
+      ];
+    }
+  }
+
+  void _showKickMemberDialog(GroupMemberItem member, {VoidCallback? onKicked}) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Remove ${member.name}?',
+          style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
+        ),
+        content: Text(
+          'Are you sure you want to remove ${member.name} from ${widget.groupName}?\n\nIf all remaining members have completed today\'s workout, the group streak will immediately reignite.',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _executeKickMember(member);
+              if (onKicked != null) {
+                onKicked();
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Kick Member', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _executeKickMember(GroupMemberItem member) {
+    setState(() {
+      _members.removeWhere((m) => m.id == member.id);
+    });
+
+    final allRemainingDone = _members.isNotEmpty && _members.every((m) => m.isDone);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          allRemainingDone
+              ? '${member.name} removed. Group streak reignited!'
+              : '${member.name} removed from group.',
+        ),
+        backgroundColor: const Color(0xFF1A1D1E),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    if (widget.onKickMember != null) {
+      widget.onKickMember!(member.name, _members.length);
+    }
+  }
+
+  void _showManageMembersSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE5E7EB),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Manage Members',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1A1D1E),
+                            ),
+                          ),
+                        ),
+                        // Role toggle for testing/demo
+                        GestureDetector(
+                          key: const Key('sheet_role_toggle'),
+                          onTap: () {
+                            setState(() {
+                              _isLeaderMode = !_isLeaderMode;
+                              _initMembers();
+                            });
+                            setSheetState(() {});
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _isLeaderMode ? const Color(0xFFE8F9F3) : const Color(0xFFF3F4F6),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _isLeaderMode ? const Color(0xFF00D09E) : const Color(0xFFE5E7EB),
+                              ),
+                            ),
+                            child: Text(
+                              _isLeaderMode ? 'Leader Mode' : 'Member Mode',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _isLeaderMode ? const Color(0xFF007A58) : const Color(0xFF6B7280),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _isLeaderMode
+                          ? 'Select a member to remove from ${widget.groupName}.'
+                          : 'You are currently a Member. Only leaders can remove members.',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                    ),
+                    const SizedBox(height: 16),
+                    ..._members.map((member) {
+                      final canKick = _isLeaderMode && !member.isCurrentUser;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: const Color(0xFF00D09E),
+                                    child: Text(
+                                      member.initials,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          member.isCurrentUser ? 'You' : member.name,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF1A1D1E),
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          member.role,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: member.isLeader ? const Color(0xFF00D09E) : const Color(0xFF8C949D),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            if (canKick)
+                              ElevatedButton(
+                                key: Key('sheet_kick_${member.name}'),
+                                onPressed: () {
+                                  _showKickMemberDialog(
+                                    member,
+                                    onKicked: () {
+                                      setSheetState(() {});
+                                    },
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFEF2F2),
+                                  foregroundColor: const Color(0xFFDC2626),
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(color: Color(0xFFFCA5A5)),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Remove',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                ),
+                              )
+                            else
+                              const SizedBox.shrink(),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   void dispose() {
@@ -355,66 +701,51 @@ class _GroupScreenState extends State<GroupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final streakDays = widget.isLeader
-        ? (widget.isUserCompleted ? 1 : 0)
-        : (widget.isUserCompleted ? 15 : 14);
+    final streakDays = widget.streakDays;
     final isDone = widget.isUserCompleted;
+    final bool allDone = _members.isNotEmpty && _members.every((m) => m.isDone);
+    final bool isStreakLit = allDone;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFCFB),
       body: SafeArea(
         child: Column(
           children: [
-            // Top Navigation Header (Identik 1:1 dengan group_screen.html / join_create_group.html)
+            // Top Navigation Header
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               decoration: const BoxDecoration(
                 color: Color(0xFFFAFCFB),
                 border: Border(bottom: BorderSide(color: Color(0xFFEEF2F0))),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  GestureDetector(
-                    onTap: widget.onBackPressed,
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      alignment: Alignment.centerLeft,
-                      child: const Icon(
-                        Icons.chevron_left_rounded,
-                        size: 26,
-                        color: Color(0xFF1A1D1E),
-                      ),
-                    ),
-                  ),
-                  Text(
-                    widget.hasGroup ? 'Group Details' : 'Workout Group',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1A1D1E),
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                  if (widget.hasGroup)
+                  if (widget.onBackPressed != null) ...[
                     GestureDetector(
-                      onTap: _showWorkoutPlanModal,
+                      onTap: widget.onBackPressed,
                       behavior: HitTestBehavior.opaque,
                       child: Container(
                         width: 32,
                         height: 32,
-                        alignment: Alignment.centerRight,
+                        alignment: Alignment.centerLeft,
                         child: const Icon(
-                          Icons.tune_rounded,
-                          size: 22,
+                          Icons.chevron_left_rounded,
+                          size: 26,
                           color: Color(0xFF1A1D1E),
                         ),
                       ),
-                    )
-                  else
-                    const SizedBox(width: 32),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Text(
+                    widget.hasGroup ? 'Group Details' : 'Workout Group',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1A1D1E),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -423,14 +754,14 @@ class _GroupScreenState extends State<GroupScreen> {
             Expanded(
               child: widget.hasGroup
                   ? ListView(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
                       children: [
                         // CARD 1: GROUP HERO & STREAK BANNER (group-hero-card)
                         Container(
-                          padding: const EdgeInsets.all(20),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Row(
@@ -465,7 +796,7 @@ class _GroupScreenState extends State<GroupScreen> {
                                     width: 52,
                                     height: 52,
                                     child: CustomPaint(
-                                      painter: _TikTokFlamePainter(isLit: isDone),
+                                      painter: _TikTokFlamePainter(isLit: isStreakLit),
                                     ),
                                   ),
                                   const SizedBox(height: 2),
@@ -474,7 +805,7 @@ class _GroupScreenState extends State<GroupScreen> {
                                     style: TextStyle(
                                       fontSize: 26,
                                       fontWeight: FontWeight.w900,
-                                      color: isDone ? const Color(0xFFFF5722) : const Color(0xFF9CA3AF),
+                                      color: isStreakLit ? const Color(0xFFFF5722) : const Color(0xFF9CA3AF),
                                       letterSpacing: -0.5,
                                       height: 1.0,
                                     ),
@@ -485,15 +816,15 @@ class _GroupScreenState extends State<GroupScreen> {
                           ),
                         ),
 
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 6),
 
                         // CARD 2: INVITE CODE CARD (invite-card)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFEBF8F3),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFD6EFE5), width: 1.5),
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -506,7 +837,7 @@ class _GroupScreenState extends State<GroupScreen> {
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w800,
-                                      color: Color(0xFF009E74),
+                                      color: Color(0xFF00D09E),
                                       letterSpacing: 0.5,
                                     ),
                                   ),
@@ -550,29 +881,29 @@ class _GroupScreenState extends State<GroupScreen> {
                           ),
                         ),
 
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 6),
 
-                        // STATS GRID (2 COLUMNS FLAT) (stats-grid)
+                        // STATS GRID (2 SEPARATE CARDS, TIGHT GAP)
                         Row(
                           children: [
                             Expanded(
-                              child: _buildStatCard('Capacity', '${widget.memberCount} / ${widget.maxMembers}'),
+                              child: _buildStatCard('Capacity', '${_members.length} / ${widget.maxMembers}'),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: _buildStatCard('Restores Left', '3 / 3'),
                             ),
                           ],
                         ),
 
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 6),
 
                         // CARD 4: THIS WEEK PROGRESS CARD (week-card)
                         Container(
-                          padding: const EdgeInsets.all(18),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Column(
@@ -613,7 +944,7 @@ class _GroupScreenState extends State<GroupScreen> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 10),
 
                               // Days grid row (S, M, T, W, T, F, S)
                               Row(
@@ -629,9 +960,9 @@ class _GroupScreenState extends State<GroupScreen> {
                                 ],
                               ),
 
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 10),
                               const Divider(height: 1, color: Color(0xFFF1F5F3)),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 8),
 
                               // Week streak footer
                               Row(
@@ -675,116 +1006,57 @@ class _GroupScreenState extends State<GroupScreen> {
                           ),
                         ),
 
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 6),
 
                         // CARD 5: MEMBERS DETAIL LIST (members-card)
                         Container(
-                          padding: const EdgeInsets.all(18),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Group Members',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF1A1D1E),
-                                  letterSpacing: -0.2,
-                                ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Group Members',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF1A1D1E),
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                  InkWell(
+                                    key: const Key('group_members_more_btn'),
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: _showManageMembersSheet,
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(4),
+                                      child: Icon(
+                                        Icons.more_vert_rounded,
+                                        size: 20,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 10),
 
-                              if (widget.isLeader) ...[
+                              for (int i = 0; i < _members.length; i++) ...[
+                                if (i > 0) const Divider(height: 12, color: Color(0xFFF1F5F3)),
                                 _buildMemberRow(
-                                  initials: _getInitials(widget.userName),
-                                  name: widget.userName.toLowerCase(),
-                                  role: 'Leader',
-                                  isLeader: true,
-                                  isDone: isDone,
-                                  isPending: !isDone,
-                                ),
-                                const Divider(height: 20, color: Color(0xFFF1F5F3)),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFAFCFB),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: const Color(0xFFE6ECE8)),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF3F4F6),
-                                          borderRadius: BorderRadius.circular(14),
-                                        ),
-                                        child: const Icon(
-                                          Icons.person_add_outlined,
-                                          size: 20,
-                                          color: Color(0xFF9CA3AF),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              'Waiting for members...',
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                                color: Color(0xFF6B7280),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'Share code ${widget.inviteCode} to invite',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w500,
-                                                color: Color(0xFF9CA3AF),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ] else ...[
-                                _buildMemberRow(
-                                  initials: 'TH',
-                                  name: 'tono hardija',
-                                  role: 'Leader',
-                                  isLeader: true,
-                                  isDone: true,
-                                ),
-                                const Divider(height: 20, color: Color(0xFFF1F5F3)),
-
-                                _buildMemberRow(
-                                  initials: _getInitials(widget.userName),
-                                  name: widget.userName.toLowerCase(),
-                                  role: 'Member',
-                                  isLeader: false,
-                                  isDone: isDone,
-                                  isPending: !isDone,
-                                ),
-                                const Divider(height: 20, color: Color(0xFFF1F5F3)),
-
-                                _buildMemberRow(
-                                  initials: 'MB',
-                                  name: 'mahmud buah',
-                                  role: 'Member',
-                                  isLeader: false,
-                                  isDone: true,
+                                  initials: _members[i].initials,
+                                  name: _members[i].name,
+                                  role: _members[i].role,
+                                  isLeader: _members[i].isLeader,
+                                  isDone: _members[i].isDone,
+                                  isPending: !_members[i].isDone,
                                 ),
                               ],
                             ],
@@ -845,10 +1117,10 @@ class _GroupScreenState extends State<GroupScreen> {
                                 width: 54,
                                 height: 54,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFE8F9F3),
+                                  color: const Color(0xFF00D09E),
                                   borderRadius: BorderRadius.circular(18),
                                 ),
-                                child: const Icon(Icons.group_outlined, color: Color(0xFF00A87A), size: 28),
+                                child: const Icon(Icons.group_outlined, color: Colors.white, size: 28),
                               ),
                               const SizedBox(height: 12),
                               const Text(
@@ -1015,18 +1287,15 @@ class _GroupScreenState extends State<GroupScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: _isJoinError ? const Color(0xFFFEF2F2) : const Color(0xFFE8F9F3),
+                                      color: _isJoinError ? const Color(0xFFEF4444) : const Color(0xFF00D09E),
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: _isJoinError ? const Color(0xFFFCA5A5) : const Color(0xFFA7F3D0),
-                                      ),
                                     ),
                                     child: Text(
                                       _joinFeedback!,
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: _isJoinError ? const Color(0xFFDC2626) : const Color(0xFF00A87A),
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
@@ -1133,12 +1402,12 @@ class _GroupScreenState extends State<GroupScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFE8F9F3),
+                                        color: const Color(0xFF00D09E),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: const Text(
                                         'Free Tier: 2–4 Members',
-                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF00A87A)),
+                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                                       ),
                                     ),
                                   ],
@@ -1283,11 +1552,11 @@ class _GroupScreenState extends State<GroupScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE8F9F3) : const Color(0xFFFAFCFB),
+          color: isSelected ? Colors.white : const Color(0xFFFAFCFB),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE6ECE8),
-            width: 1.5,
+            width: isSelected ? 2.0 : 1.5,
           ),
         ),
         child: Row(
@@ -1339,10 +1608,10 @@ class _GroupScreenState extends State<GroupScreen> {
 
   Widget _buildStatCard(String label, String value) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
       ),
       child: Column(
@@ -1377,69 +1646,105 @@ class _GroupScreenState extends State<GroupScreen> {
     required bool isLeader,
     bool isDone = false,
     bool isPending = false,
+    VoidCallback? onKick,
   }) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
+        Expanded(
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: isPending ? const Color(0xFFF3F4F6) : const Color(0xFF00D09E),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: Text(
+                    initials,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isPending ? const Color(0xFF6B7280) : Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1D1E),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      role,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isLeader ? const Color(0xFF00D09E) : const Color(0xFF8C949D),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
         Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 40,
-              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
-                color: isPending ? const Color(0xFFF3F4F6) : const Color(0xFFE8F9F3),
-                borderRadius: BorderRadius.circular(14),
+                color: isDone ? const Color(0xFFFF5722) : const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Center(
-                child: Text(
-                  initials,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: isPending ? const Color(0xFF6B7280) : const Color(0xFF00A87A),
-                  ),
+              child: Text(
+                isDone ? 'Done' : 'Undone',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: isDone ? Colors.white : const Color(0xFF8C949D),
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1A1D1E),
+            if (onKick != null) ...[
+              const SizedBox(width: 6),
+              InkWell(
+                key: Key('kick_button_$name'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: onKick,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFCA5A5), width: 1),
+                  ),
+                  child: const Text(
+                    'Kick',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFDC2626),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  role,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: isLeader ? const Color(0xFF00A87A) : const Color(0xFF8C949D),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ],
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: isDone ? const Color(0xFFFEECEB) : const Color(0xFFF3F4F6),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            isDone ? 'Done' : 'Pending',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: isDone ? const Color(0xFFFF5722) : const Color(0xFF9CA3AF),
-            ),
-          ),
         ),
       ],
     );
@@ -1470,7 +1775,7 @@ class _DayCircle extends StatelessWidget {
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: isActive ? const Color(0xFF1A1D1E) : const Color(0xFFF4F7F5),
+            color: isActive ? const Color(0xFF00D09E) : const Color(0xFFF4F7F5),
             shape: BoxShape.circle,
           ),
           child: Center(

@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/user_progress_service.dart';
 import '../dashboard/presentation/dashboard_screen.dart';
 import '../group/presentation/group_screen.dart';
 import '../history/presentation/history_screen.dart';
@@ -9,8 +10,15 @@ import '../profile/presentation/profile_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   final String userName;
+  final String? userEmail;
+  final String? userId;
 
-  const MainNavigationScreen({super.key, required this.userName});
+  const MainNavigationScreen({
+    super.key,
+    required this.userName,
+    this.userEmail,
+    this.userId,
+  });
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
@@ -18,53 +26,92 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
-  bool _isUserCompleted = false;
+  late final PageController _pageController;
 
-  // Status Siklus Grup Pengguna (SDD StreakWok)
-  bool _hasGroup = false;
-  String _groupName = 'gerup ketat';
-  bool _isLeader = false;
-  String _inviteCode = 'WOK-882';
-  int _memberCount = 3;
-  int _maxMembers = 4;
+  late UserAccountProgress _userProgress;
+
+  String get _accountKey => UserProgressService.getAccountKey(
+        email: widget.userEmail,
+        userId: widget.userId,
+        userName: widget.userName,
+      );
 
   @override
   void initState() {
     super.initState();
-    _loadGroupState();
+    _pageController = PageController(initialPage: _currentIndex);
+    _userProgress = UserAccountProgress(accountKey: _accountKey);
+    _loadUserProgress();
   }
 
-  Future<void> _loadGroupState() async {
-    final prefs = await SharedPreferences.getInstance();
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _navigateToTab(int index) {
+    if (_currentIndex == index) return;
+    setState(() => _currentIndex = index);
+  }
+
+  Future<void> _loadUserProgress() async {
+    final progress = await UserProgressService.loadProgress(_accountKey);
     if (!mounted) return;
     setState(() {
-      _hasGroup = prefs.getBool('has_group') ?? false;
-      _groupName = prefs.getString('group_name') ?? 'gerup ketat';
-      _isLeader = prefs.getBool('is_leader') ?? false;
-      _inviteCode = prefs.getString('invite_code') ?? 'WOK-882';
-      _memberCount = prefs.getInt('member_count') ?? 3;
-      _maxMembers = prefs.getInt('max_members') ?? 4;
+      _userProgress = progress;
     });
   }
 
-  void _onToggleWorkout() {
+  Future<void> _updateUserProgress(UserAccountProgress updated) async {
     setState(() {
-      _isUserCompleted = !_isUserCompleted;
+      _userProgress = updated;
     });
+    await UserProgressService.saveProgress(updated);
+  }
+
+  void _onToggleWorkout() async {
+    final newCompleted = !_userProgress.isUserCompleted;
+    int newStreak = _userProgress.streakDays;
+    if (newCompleted) {
+      newStreak += 1;
+    } else {
+      newStreak = (newStreak > 0) ? newStreak - 1 : 0;
+    }
+
+    final updated = _userProgress.copyWith(
+      isUserCompleted: newCompleted,
+      streakDays: newStreak,
+    );
+    await _updateUserProgress(updated);
+  }
+
+  void _onAdvanceDay() async {
+    if (_userProgress.currentActiveDay >= 30) return;
+    final updated = _userProgress.copyWith(
+      currentActiveDay: _userProgress.currentActiveDay + 1,
+      isUserCompleted: false,
+    );
+    await _updateUserProgress(updated);
   }
 
   void _switchToGroupTab() {
-    setState(() => _currentIndex = 1);
+    _navigateToTab(1);
+  }
+
+  void _onWorkoutCompletedSession() {
+    if (_userProgress.hasGroup) {
+      _navigateToTab(1); // Group tab
+    } else {
+      _navigateToTab(2); // Reports / History tab
+    }
   }
 
   void _onToggleGroupDemo() async {
-    final newStatus = !_hasGroup;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_group', newStatus);
-
-    setState(() {
-      _hasGroup = newStatus;
-    });
+    final updated = _userProgress.copyWith(
+      hasGroup: !_userProgress.hasGroup,
+    );
+    await _updateUserProgress(updated);
   }
 
   // MODAL 1: JOIN GROUP MODAL (Identik 1:1 dengan dashboard_screen.html #joinGroupModal)
@@ -241,26 +288,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         }
 
                         if (inputCode == 'WOK-882' || inputCode.startsWith('WOK-')) {
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setBool('has_group', true);
-                          await prefs.setString('group_name', 'gerup ketat');
-                          await prefs.setBool('is_leader', false);
-                          await prefs.setString('invite_code', inputCode);
-                          await prefs.setInt('member_count', 3);
-                          await prefs.setInt('max_members', 4);
-
+                          final updated = _userProgress.copyWith(
+                            hasGroup: true,
+                            groupName: 'gerup ketat',
+                            isLeader: false,
+                            inviteCode: inputCode,
+                            memberCount: 3,
+                            maxMembers: 4,
+                          );
+                          await _updateUserProgress(updated);
                           setState(() {
-                            _hasGroup = true;
-                            _groupName = 'gerup ketat';
-                            _isLeader = false;
-                            _inviteCode = inputCode;
-                            _memberCount = 3;
-                            _maxMembers = 4;
                             _currentIndex = 1; // Langsung beralih ke Dashboard Grup!
                           });
 
                           if (!context.mounted) return;
                           Navigator.pop(context);
+                          if (_pageController.hasClients) {
+                            _pageController.jumpToPage(1);
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: const Text('Successfully joined group streak'),
@@ -445,12 +490,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFE8F9F3),
+                          color: const Color(0xFF00D09E),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Text(
                           'Free Tier: 2–4 Members',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF00A87A)),
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                       ),
                     ],
@@ -504,26 +549,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         }
 
                         final randomCode = 'WOK-${100 + Random().nextInt(900)}';
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('has_group', true);
-                        await prefs.setString('group_name', gName);
-                        await prefs.setBool('is_leader', true);
-                        await prefs.setString('invite_code', randomCode);
-                        await prefs.setInt('member_count', 1);
-                        await prefs.setInt('max_members', capacity);
-
+                        final updated = _userProgress.copyWith(
+                          hasGroup: true,
+                          groupName: gName,
+                          isLeader: true,
+                          inviteCode: randomCode,
+                          memberCount: 1,
+                          maxMembers: capacity,
+                        );
+                        await _updateUserProgress(updated);
                         setState(() {
-                          _hasGroup = true;
-                          _groupName = gName;
-                          _isLeader = true;
-                          _inviteCode = randomCode;
-                          _memberCount = 1;
-                          _maxMembers = capacity;
                           _currentIndex = 1; // Langsung beralih ke Dashboard Grup!
                         });
 
                         if (!context.mounted) return;
                         Navigator.pop(context);
+                        if (_pageController.hasClients) {
+                          _pageController.jumpToPage(1);
+                        }
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Group "$gName" created! Invite code: $randomCode 🎉'),
@@ -560,11 +603,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE8F9F3) : const Color(0xFFFAFCFB),
+          color: isSelected ? Colors.white : const Color(0xFFFAFCFB),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE6ECE8),
-            width: 1.5,
+            width: isSelected ? 2.0 : 1.5,
           ),
         ),
         child: Row(
@@ -624,19 +667,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   // Handler: Keluar dari Grup
   void _handleLeaveGroup() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_group', false);
-    await prefs.remove('group_name');
-    await prefs.remove('is_leader');
-    await prefs.remove('invite_code');
-
-    setState(() {
-      _hasGroup = false;
-      _isLeader = false;
-      _groupName = 'gerup ketat';
-      _inviteCode = 'WOK-882';
-      _memberCount = 3;
-    });
+    final updated = _userProgress.copyWith(
+      hasGroup: false,
+      isLeader: false,
+    );
+    await _updateUserProgress(updated);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -648,20 +683,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _handleJoinGroupFromScreen(String code) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_group', true);
-    await prefs.setString('group_name', 'gerup ketat');
-    await prefs.setBool('is_leader', false);
-    await prefs.setString('invite_code', code);
-    await prefs.setInt('member_count', 3);
-
-    if (!mounted) return;
+    final updated = _userProgress.copyWith(
+      hasGroup: true,
+      isLeader: false,
+      groupName: 'gerup ketat',
+      inviteCode: code,
+      memberCount: 3,
+    );
+    await _updateUserProgress(updated);
     setState(() {
-      _hasGroup = true;
-      _isLeader = false;
-      _groupName = 'gerup ketat';
-      _inviteCode = code;
-      _memberCount = 3;
       _currentIndex = 1;
     });
 
@@ -678,22 +708,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   void _handleCreateGroupFromScreen(String name, String difficulty, int capacity) async {
     final generatedCode = 'WOK-${Random().nextInt(900) + 100}';
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_group', true);
-    await prefs.setString('group_name', name);
-    await prefs.setBool('is_leader', true);
-    await prefs.setString('invite_code', generatedCode);
-    await prefs.setInt('member_count', 1);
-    await prefs.setInt('max_members', capacity);
-
-    if (!mounted) return;
+    final updated = _userProgress.copyWith(
+      hasGroup: true,
+      isLeader: true,
+      groupName: name,
+      inviteCode: generatedCode,
+      memberCount: 1,
+      maxMembers: capacity,
+    );
+    await _updateUserProgress(updated);
     setState(() {
-      _hasGroup = true;
-      _isLeader = true;
-      _groupName = name;
-      _inviteCode = generatedCode;
-      _memberCount = 1;
-      _maxMembers = capacity;
       _currentIndex = 1;
     });
 
@@ -712,38 +736,50 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final List<Widget> screens = [
       DashboardScreen(
         userName: widget.userName,
-        isUserCompleted: _isUserCompleted,
-        hasGroup: _hasGroup,
-        groupName: _groupName,
-        isLeader: _isLeader,
+        currentActiveDay: _userProgress.currentActiveDay,
+        streakDays: _userProgress.streakDays,
+        isUserCompleted: _userProgress.isUserCompleted,
+        hasGroup: _userProgress.hasGroup,
+        groupName: _userProgress.groupName,
+        isLeader: _userProgress.isLeader,
         onToggleWorkout: _onToggleWorkout,
+        onAdvanceDay: _onAdvanceDay,
         onViewGroup: _switchToGroupTab,
         onJoinGroupTap: () => _showJoinGroupModal(context),
         onCreateGroupTap: () => _showCreateGroupModal(context),
         onToggleGroupState: _onToggleGroupDemo,
+        onWorkoutCompletedSession: _onWorkoutCompletedSession,
       ),
       GroupScreen(
         userName: widget.userName,
-        isUserCompleted: _isUserCompleted,
-        hasGroup: _hasGroup,
-        groupName: _groupName,
-        isLeader: _isLeader,
-        inviteCode: _inviteCode,
-        memberCount: _memberCount,
-        maxMembers: _maxMembers,
-        onBackPressed: () => setState(() => _currentIndex = 0),
-        onHistoryTap: () => setState(() => _currentIndex = 2),
+        currentActiveDay: _userProgress.currentActiveDay,
+        streakDays: _userProgress.streakDays,
+        isUserCompleted: _userProgress.isUserCompleted,
+        hasGroup: _userProgress.hasGroup,
+        groupName: _userProgress.groupName,
+        isLeader: _userProgress.isLeader,
+        inviteCode: _userProgress.inviteCode,
+        memberCount: _userProgress.memberCount,
+        maxMembers: _userProgress.maxMembers,
+        onBackPressed: () => _navigateToTab(0),
+        onHistoryTap: () => _navigateToTab(2),
         onJoinGroup: _handleJoinGroupFromScreen,
         onCreateGroup: _handleCreateGroupFromScreen,
         onLeaveGroup: _handleLeaveGroup,
+        onKickMember: (memberName, remainingCount) async {
+          final updated = _userProgress.copyWith(
+            memberCount: remainingCount,
+          );
+          await _updateUserProgress(updated);
+        },
       ),
       HistoryScreen(
-        onBackPressed: () => setState(() => _currentIndex = 0),
+        onBackPressed: () => _navigateToTab(0),
       ),
       ProfileScreen(
         userName: widget.userName,
-        hasGroup: _hasGroup,
-        groupName: _groupName,
+        hasGroup: _userProgress.hasGroup,
+        groupName: _userProgress.groupName,
       ),
     ];
 
@@ -789,7 +825,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final color = isSelected ? const Color(0xFF00D09E) : const Color(0xFF9CA3AF);
 
     return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
+      onTap: () => _navigateToTab(index),
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -810,5 +846,26 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         ),
       ),
     );
+  }
+}
+
+/// Helper wrapper to retain page state and scroll positions during PageView transitions.
+class _KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveWrapper({super.key, required this.child});
+
+  @override
+  State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

@@ -236,38 +236,38 @@ class GroupHistoryScreen extends StatelessWidget {
       const _DayCell('2'),
       const _DayCell('3'),
 
-      // Row 2: Oct 4 - 10 Done by all if existing group
-      _DayCell('4', isDone: !isLeader),
+      // Row 2: Oct 4 - 10 Done by all if existing group (Day 4 & 8 are rest days)
+      _DayCell('4', isDone: !isLeader, isRest: true),
       _DayCell('5', isDone: !isLeader),
       _DayCell('6', isDone: !isLeader),
       _DayCell('7', isDone: !isLeader),
-      _DayCell('8', isDone: !isLeader),
+      _DayCell('8', isDone: !isLeader, isRest: true),
       _DayCell('9', isDone: !isLeader),
       _DayCell('10', isDone: !isLeader),
 
-      // Row 3: Oct 11 - 17 Done by all if existing group
+      // Row 3: Oct 11 - 17 Done by all if existing group (Day 12 & 16 are rest days)
       _DayCell('11', isDone: !isLeader),
-      _DayCell('12', isDone: !isLeader),
+      _DayCell('12', isDone: !isLeader, isRest: true),
       _DayCell('13', isDone: !isLeader),
       _DayCell('14', isDone: !isLeader),
       _DayCell('15', isDone: !isLeader),
-      _DayCell('16', isDone: !isLeader),
+      _DayCell('16', isDone: !isLeader, isRest: true),
       _DayCell('17', isDone: !isLeader),
 
       // Row 4: Oct 18 Active Today (In Progress)
       _DayCell('18', isActiveToday: true, isDone: isLeader ? isUserCompleted : false),
       const _DayCell('19'),
-      const _DayCell('20'),
+      const _DayCell('20', isRest: true),
       const _DayCell('21'),
       const _DayCell('22'),
       const _DayCell('23'),
-      const _DayCell('24'),
+      const _DayCell('24', isRest: true),
 
       // Row 5: Remaining days
       const _DayCell('25'),
       const _DayCell('26'),
       const _DayCell('27'),
-      const _DayCell('28'),
+      const _DayCell('28', isRest: true),
       const _DayCell('29'),
       const _DayCell('30'),
       const _DayCell('31'),
@@ -328,15 +328,15 @@ class GroupHistoryScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isSuccess ? const Color(0xFFE8F9F3) : const Color(0xFFFEF2F2),
+                  color: isSuccess ? const Color(0xFF00D09E) : const Color(0xFFEF4444),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   statusText,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: isSuccess ? const Color(0xFF00A87A) : const Color(0xFFDC2626),
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -411,7 +411,7 @@ class GroupHistoryScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
+                  color: const Color(0xFF3B82F6),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
@@ -419,7 +419,7 @@ class GroupHistoryScreen extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF2563EB),
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -472,8 +472,9 @@ class _DayCell extends StatelessWidget {
   final String day;
   final bool isDone;
   final bool isActiveToday;
+  final bool isRest;
 
-  const _DayCell(this.day, {this.isDone = false, this.isActiveToday = false});
+  const _DayCell(this.day, {this.isDone = false, this.isActiveToday = false, this.isRest = false});
 
   @override
   Widget build(BuildContext context) {
@@ -486,7 +487,7 @@ class _DayCell extends StatelessWidget {
       textColor = Colors.white;
       fontWeight = FontWeight.w800;
     } else if (isDone) {
-      bgColor = const Color(0xFF00D09E);
+      bgColor = isRest ? const Color(0xFF3B82F6) : const Color(0xFF00D09E);
       textColor = Colors.white;
       fontWeight = FontWeight.w800;
     }
