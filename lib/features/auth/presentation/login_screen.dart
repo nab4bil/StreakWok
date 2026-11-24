@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/user_progress_service.dart';
 import '../../navigation/main_navigation_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -37,21 +38,48 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final chosenName = googleUser.displayName ?? 'User';
+      final chosenEmail = googleUser.email;
+      final userId = googleUser.id;
+      final accountKey = UserProgressService.getAccountKey(
+        email: chosenEmail,
+        userId: userId,
+      );
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('is_logged_in', true);
-      await prefs.setString('user_name', chosenName);
 
-      setState(() => _isLoading = false);
+      // Cek apakah akun ini sudah pernah terdaftar dan memiliki username:
+      final existingUsername = await UserProgressService.getSavedUsername(accountKey);
 
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => MainNavigationScreen(userName: chosenName),
-        ),
-      );
+      if (existingUsername != null && existingUsername.isNotEmpty) {
+        // AKUN SUDAH TERDAFTAR: Jangan reset progres atau username!
+        await prefs.setBool('is_logged_in', true);
+        await prefs.setString('user_name', existingUsername);
+        await prefs.setString('user_email', chosenEmail);
+        await prefs.setString('user_id', userId);
+
+        setState(() => _isLoading = false);
+
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MainNavigationScreen(
+              userName: existingUsername,
+              userEmail: chosenEmail,
+              userId: userId,
+            ),
+          ),
+        );
+      } else {
+        // AKUN BARU: Tampilkan form pembuatan profil nama
+        setState(() => _isLoading = false);
+        if (!mounted) return;
+        _showSetProfileNameBottomSheet(
+          context,
+          accountKey: accountKey,
+          googleUser: googleUser,
+        );
+      }
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -62,6 +90,235 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     }
+  }
+
+  void _showSetProfileNameBottomSheet(
+    BuildContext context, {
+    required String accountKey,
+    required GoogleSignInAccount googleUser,
+  }) {
+    final suggestedName = (googleUser.displayName != null && googleUser.displayName!.trim().isNotEmpty)
+        ? googleUser.displayName!.trim()
+        : googleUser.email.split('@').first;
+
+    // Controller dikosongkan agar pengguna baru bebas mengetikkan nama tampilan sendiri
+    final nameController = TextEditingController();
+    String? errorText;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: MediaQuery.of(modalContext).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F9F3),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.person_rounded,
+                            color: Color(0xFF00D09E),
+                            size: 26,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Set your name',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1A1D1E),
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              googleUser.email,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Choose a display name for your profile, workout groups, and streaks.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF6B7280),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: nameController,
+                    autofocus: true,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1D1E),
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Display Name',
+                      hintText: 'e.g. $suggestedName',
+                      prefixIcon: const Icon(
+                        Icons.badge_outlined,
+                        color: Color(0xFF00D09E),
+                        size: 20,
+                      ),
+                      errorText: errorText,
+                      filled: true,
+                      fillColor: const Color(0xFFFAFCFB),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFFE6ECE8)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFFE6ECE8)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFF00D09E), width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final rawInput = nameController.text.trim();
+                        if (rawInput.isEmpty) {
+                          setModalState(() => errorText = 'Name cannot be empty');
+                          return;
+                        }
+                        if (rawInput.length < 2) {
+                          setModalState(() => errorText = 'Name must be at least 2 characters');
+                          return;
+                        }
+                        if (rawInput.length > 25) {
+                          setModalState(() => errorText = 'Name cannot exceed 25 characters');
+                          return;
+                        }
+                        // Izinkan format nama natural: huruf, angka, spasi, titik, koma atas, tanda hubung
+                        if (!RegExp(r"^[a-zA-Z0-9\s.'-]+$").hasMatch(rawInput)) {
+                          setModalState(() => errorText = 'Please enter a valid name (letters, numbers, spaces)');
+                          return;
+                        }
+                        // Cegah penggunaan nama sistem terlarang (security reserve)
+                        const reservedNames = ['admin', 'streakwok', 'system', 'moderator', 'root'];
+                        if (reservedNames.contains(rawInput.toLowerCase().trim())) {
+                          setModalState(() => errorText = 'This name is reserved by system');
+                          return;
+                        }
+
+                        // Sanitasi spasi ganda
+                        final sanitized = rawInput.replaceAll(RegExp(r'\s+'), ' ');
+
+                        // Simpan profile name untuk akun ini
+                        await UserProgressService.saveUsername(accountKey, sanitized);
+
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('is_logged_in', true);
+                        await prefs.setString('user_name', sanitized);
+                        await prefs.setString('user_email', googleUser.email);
+                        await prefs.setString('user_id', googleUser.id);
+
+                        // Inisialisasi progress akun baru (Day 1, Streak 0)
+                        await UserProgressService.saveProgress(
+                          UserAccountProgress(
+                            accountKey: accountKey,
+                            currentActiveDay: 1,
+                            streakDays: 0,
+                            isUserCompleted: false,
+                            hasGroup: false,
+                          ),
+                        );
+
+                        if (!modalContext.mounted) return;
+                        Navigator.pop(modalContext);
+
+                        if (!mounted) return;
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MainNavigationScreen(
+                              userName: sanitized,
+                              userEmail: googleUser.email,
+                              userId: googleUser.id,
+                            ),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00D09E),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Continue to StreakWok',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -233,10 +490,10 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F9F3),
+              color: const Color(0xFF00D09E),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, size: 16, color: const Color(0xFF00D09E)),
+            child: Icon(icon, size: 16, color: Colors.white),
           ),
           const SizedBox(width: 12),
           Text(

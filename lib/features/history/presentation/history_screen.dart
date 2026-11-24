@@ -12,40 +12,41 @@ class HistoryScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Navigation Header (Identik dengan history_screen.html)
+            // Top Navigation Header
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               decoration: const BoxDecoration(
                 color: Color(0xFFFAFCFB),
                 border: Border(bottom: BorderSide(color: Color(0xFFEEF2F0))),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  GestureDetector(
-                    onTap: onBackPressed,
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      alignment: Alignment.centerLeft,
-                      child: const Icon(
-                        Icons.chevron_left_rounded,
-                        size: 26,
-                        color: Color(0xFF1A1D1E),
+                  if (onBackPressed != null) ...[
+                    GestureDetector(
+                      onTap: onBackPressed,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        alignment: Alignment.centerLeft,
+                        child: const Icon(
+                          Icons.chevron_left_rounded,
+                          size: 26,
+                          color: Color(0xFF1A1D1E),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                  ],
                   const Text(
                     'History',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
                       color: Color(0xFF1A1D1E),
-                      letterSpacing: -0.2,
+                      letterSpacing: -0.3,
                     ),
                   ),
-                  const SizedBox(width: 32), // Placeholder balance
                 ],
               ),
             ),
@@ -266,25 +267,25 @@ class HistoryScreen extends StatelessWidget {
     cells.add(_buildDateCell('2'));
     cells.add(_buildDateCell('3'));
 
-    // Week 2: 4 to 10 (all done)
+    // Week 2: 4 to 10 (all done, Day 4 & 8 are rest days)
     for (int d = 4; d <= 10; d++) {
-      cells.add(_buildDateCell('$d', isDone: true));
+      cells.add(_buildDateCell('$d', isDone: true, isRest: (d == 4 || d == 8)));
     }
 
-    // Week 3: 11 to 17 (all done)
+    // Week 3: 11 to 17 (all done, Day 12 & 16 are rest days)
     for (int d = 11; d <= 17; d++) {
-      cells.add(_buildDateCell('$d', isDone: true));
+      cells.add(_buildDateCell('$d', isDone: true, isRest: (d == 12 || d == 16)));
     }
 
     // Week 4: 18 (active today), 19-24 upcoming
     cells.add(_buildDateCell('18', isActiveToday: true));
     for (int d = 19; d <= 24; d++) {
-      cells.add(_buildDateCell('$d'));
+      cells.add(_buildDateCell('$d', isRest: (d == 20 || d == 24)));
     }
 
     // Week 5: 25-31
     for (int d = 25; d <= 31; d++) {
-      cells.add(_buildDateCell('$d'));
+      cells.add(_buildDateCell('$d', isRest: (d == 28)));
     }
 
     return GridView.count(
@@ -297,19 +298,19 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
-  static Widget _buildDateCell(String text, {bool isDone = false, bool isActiveToday = false}) {
+  static Widget _buildDateCell(String text, {bool isDone = false, bool isActiveToday = false, bool isRest = false}) {
     Color bg = Colors.transparent;
     Color textColor = const Color(0xFF6B7280);
     FontWeight fw = FontWeight.w500;
 
     if (isActiveToday) {
-      bg = const Color(0xFF1A1D1E);
+      bg = const Color(0xFF00D09E);
       textColor = Colors.white;
       fw = FontWeight.w800;
     } else if (isDone) {
-      bg = const Color(0xFFE8F9F3);
-      textColor = const Color(0xFF00A87A);
-      fw = FontWeight.w700;
+      bg = isRest ? const Color(0xFF3B82F6) : const Color(0xFF00D09E);
+      textColor = Colors.white;
+      fw = FontWeight.w800;
     }
 
     return Center(
@@ -350,13 +351,13 @@ class HistoryScreen extends StatelessWidget {
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            color: isRest ? const Color(0xFFE0E7FF) : const Color(0xFFFFF3ED),
+            color: isRest ? const Color(0xFF3B82F6) : const Color(0xFFFF5722),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
             child: Icon(
               isRest ? Icons.spa_rounded : Icons.local_fire_department_rounded,
-              color: isRest ? const Color(0xFF3B82F6) : const Color(0xFFFF5722),
+              color: Colors.white,
               size: 22,
             ),
           ),

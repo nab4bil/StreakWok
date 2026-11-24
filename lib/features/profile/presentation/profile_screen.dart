@@ -109,13 +109,13 @@ class ProfileScreen extends StatelessWidget {
                 children: [
                   CircleAvatar(
                     radius: 36,
-                    backgroundColor: const Color(0xFFE8F9F3),
+                    backgroundColor: const Color(0xFF00D09E),
                     child: Text(
                       userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF00A87A),
+                        color: Colors.white,
                       ),
                     ),
                   ),
