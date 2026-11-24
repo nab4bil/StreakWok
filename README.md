@@ -1,16 +1,40 @@
-# streakwok
+# StreakWOK (Streak Workout)
 
-A new Flutter project.
+Aplikasi mobile untuk workout interaktif bersama teman dengan sistem gamifikasi streak harian dan validasi repetisi latihan.
+
+---
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+### Prerequisites
+- Android Smartphone (Android 8.0+) atau Android Emulator
+- Flutter SDK (>= 3.0.0) & Dart SDK
 
-A few resources to get you started if this is your first Flutter project:
+### Installation & Run
+1. Clone repositori ini
+2. Ambil paket dependensi:
+   ```bash
+   flutter pub get
+   ```
+3. Jalankan aplikasi ke perangkat / emulator:
+   ```bash
+   flutter run
+   ```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+---
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Tech Stack
+- **Mobile Framework:** Flutter (Dart)
+- **State & Persistence:** SharedPreferences & Clean Architecture
+- **Audio & Visual:** Lottie Animations & Audioplayers
+
+---
+
+## Video Youtube
+Video demo aplikasi dapat diakses di link bawah ini:
+https://youtu.be/Uq-pS1367vs
+
+---
+
+## Authors
+- Tim Pengembang StreakWOK
