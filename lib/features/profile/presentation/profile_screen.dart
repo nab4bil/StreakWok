@@ -131,38 +131,14 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  // Profile Name + PRO badge next to name
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1A1D1E),
-                        ),
-                      ),
-                      if (isPro) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF00D09E),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            'PRO',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                  // Profile Name (Clean, without redundant badge)
+                  Text(
+                    userName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1A1D1E),
+                    ),
                   ),
                   const SizedBox(height: 4),
 
@@ -301,14 +277,14 @@ class ProfileScreen extends StatelessWidget {
                     icon: Icons.workspace_premium_rounded,
                     label: 'Account Tier',
                     value: isPro ? 'StreakWok Pro' : 'Free Tier',
-                    valueColor: isPro ? const Color(0xFFFF9800) : const Color(0xFF6B7280),
+                    valueColor: isPro ? const Color(0xFF00A87A) : const Color(0xFF6B7280),
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F3)),
                   _buildDetailRow(
                     icon: Icons.group_outlined,
                     label: 'Group Membership',
                     value: hasGroup ? groupName : 'No Group Joined',
-                    valueColor: hasGroup ? const Color(0xFF00A87A) : const Color(0xFF9CA3AF),
+                    valueColor: const Color(0xFF1A1D1E),
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F3)),
                   _buildDetailRow(
