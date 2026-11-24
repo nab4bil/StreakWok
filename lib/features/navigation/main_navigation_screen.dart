@@ -29,6 +29,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   late final PageController _pageController;
 
   late UserAccountProgress _userProgress;
+  late String _activeUserName;
 
   String get _accountKey => UserProgressService.getAccountKey(
         email: widget.userEmail,
@@ -39,6 +40,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    _activeUserName = widget.userName;
     _pageController = PageController(initialPage: _currentIndex);
     _userProgress = UserAccountProgress(accountKey: _accountKey);
     _loadUserProgress();
@@ -57,10 +59,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   Future<void> _loadUserProgress() async {
     final progress = await UserProgressService.loadProgress(_accountKey);
+    final savedName = await UserProgressService.getSavedUsername(_accountKey);
     if (!mounted) return;
     setState(() {
       _userProgress = progress;
+      if (savedName != null && savedName.isNotEmpty) {
+        _activeUserName = savedName;
+      }
     });
+  }
+
+  Future<void> _handleNameChanged(String newName) async {
+    setState(() {
+      _activeUserName = newName;
+    });
+    await UserProgressService.saveUsername(_accountKey, newName);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_name', newName);
   }
 
   Future<void> _updateUserProgress(UserAccountProgress updated) async {
@@ -751,7 +766,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Widget build(BuildContext context) {
     final List<Widget> screens = [
       DashboardScreen(
-        userName: widget.userName,
+        userName: _activeUserName,
         currentActiveDay: _userProgress.currentActiveDay,
         streakDays: _userProgress.streakDays,
         isUserCompleted: _userProgress.isUserCompleted,
@@ -767,7 +782,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onWorkoutCompletedSession: _onWorkoutCompletedSession,
       ),
       GroupScreen(
-        userName: widget.userName,
+        userName: _activeUserName,
         currentActiveDay: _userProgress.currentActiveDay,
         streakDays: _userProgress.streakDays,
         isUserCompleted: _userProgress.isUserCompleted,
@@ -797,12 +812,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onBackPressed: () => _navigateToTab(0),
       ),
       ProfileScreen(
-        userName: widget.userName,
+        userName: _activeUserName,
+        userEmail: widget.userEmail,
         hasGroup: _userProgress.hasGroup,
         groupName: _userProgress.groupName,
         isPro: _userProgress.isPro,
         restoresLeft: _userProgress.restoresLeft,
         onUpgradePro: _handleUpgradePro,
+        onNameChanged: _handleNameChanged,
       ),
     ];
 
