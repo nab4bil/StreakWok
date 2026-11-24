@@ -177,7 +177,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
           name: 'mahmud buah',
           role: 'Member',
           isLeader: false,
-          isDone: true,
+          isDone: false, // Member belum latihan -> streak butuh restore
         ),
       ];
     }
@@ -694,19 +694,14 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                 ),
                 const SizedBox(height: 16),
                 _buildProBenefitItem(
-                  Icons.all_inclusive_rounded,
-                  'Unlimited Streak Restores',
-                  'Never worry about missing a day with squad',
+                  Icons.replay_rounded,
+                  '5 Streak Restores per Month',
+                  'Extra chances to keep your group streak alive',
                 ),
                 _buildProBenefitItem(
                   Icons.groups_rounded,
                   '10 Members Group Capacity',
-                  'Workout with your entire squad (Free limit: 4)',
-                ),
-                _buildProBenefitItem(
-                  Icons.insights_rounded,
-                  'AI Movement Precision Analytics',
-                  'Detailed pose form score breakdown',
+                  'Workout with your entire squad',
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -743,14 +738,14 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                       Navigator.of(sheetContext).pop();
                       setState(() {
                         _isPro = true;
-                        _restoresLeft = 3;
+                        _restoresLeft = 5;
                         _isStreakRestored = true;
                       });
                       HapticFeedback.mediumImpact();
                       _jiggleController.forward(from: 0.0);
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Upgraded to StreakWok Pro! Streak revived & unlimited restores unlocked.'),
+                          content: Text('Upgraded to StreakWok Pro! 5 restores per month & 10-member capacity unlocked.'),
                           duration: Duration(seconds: 3),
                           backgroundColor: Color(0xFF1A1D1E),
                           behavior: SnackBarBehavior.floating,
@@ -1091,27 +1086,35 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                       ),
                                     ],
                                   ),
-                                  AnimatedBuilder(
-                                    animation: _jiggleAnimation,
-                                    builder: (context, child) {
-                                      final scale = 1.0 + (_jiggleController.value > 0
-                                          ? (0.28 * (1.0 - ((_jiggleController.value - 0.5).abs() * 2)))
-                                          : 0.0);
-                                      return Transform.scale(
-                                        scale: scale,
-                                        child: Transform.rotate(
-                                          angle: _jiggleAnimation.value,
-                                          child: child,
-                                        ),
-                                      );
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      setState(() {
+                                        _isStreakRestored = !_isStreakRestored;
+                                      });
                                     },
                                     child: Column(
                                       children: [
-                                        SizedBox(
-                                          width: 52,
-                                          height: 52,
-                                          child: CustomPaint(
-                                            painter: _TikTokFlamePainter(isLit: isStreakLit),
+                                        AnimatedBuilder(
+                                          animation: _jiggleAnimation,
+                                          builder: (context, child) {
+                                            final scale = 1.0 + (_jiggleController.value > 0
+                                                ? (0.28 * (1.0 - ((_jiggleController.value - 0.5).abs() * 2)))
+                                                : 0.0);
+                                            return Transform.scale(
+                                              scale: scale,
+                                              child: Transform.rotate(
+                                                angle: _jiggleAnimation.value,
+                                                child: child,
+                                              ),
+                                            );
+                                          },
+                                          child: SizedBox(
+                                            width: 52,
+                                            height: 52,
+                                            child: CustomPaint(
+                                              painter: _TikTokFlamePainter(isLit: isStreakLit),
+                                            ),
                                           ),
                                         ),
                                         const SizedBox(height: 2),
@@ -1242,7 +1245,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                         Row(
                           children: [
                             Expanded(
-                              child: _buildStatCard('Capacity', '${_members.length} / ${widget.maxMembers}'),
+                              child: _buildStatCard('Capacity', '${_members.length} / ${_isPro ? 10 : widget.maxMembers}'),
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -1256,7 +1259,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(_isPro
-                                            ? 'StreakWok Pro: Unlimited restores active!'
+                                            ? 'StreakWok Pro: $_restoresLeft / 5 streak restores left this month.'
                                             : 'You have $_restoresLeft / 3 streak restores left this month.'),
                                         duration: const Duration(seconds: 2),
                                         backgroundColor: const Color(0xFF1A1D1E),
@@ -1268,7 +1271,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                 },
                                 child: _buildStatCard(
                                   'Restores Left',
-                                  _isPro ? 'Unlimited' : '$_restoresLeft / 3',
+                                  '$_restoresLeft / ${_isPro ? 5 : 3}',
                                 ),
                               ),
                             ),

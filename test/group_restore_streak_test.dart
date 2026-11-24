@@ -70,7 +70,7 @@ void main() {
 
       // Pro modal is shown
       expect(find.text('StreakWok Pro'), findsOneWidget);
-      expect(find.text('Unlimited Streak Restores'), findsOneWidget);
+      expect(find.text('5 Streak Restores per Month'), findsOneWidget);
       expect(find.text('10 Members Group Capacity'), findsOneWidget);
       expect(find.text('Save 40%'), findsOneWidget);
       expect(find.byKey(const Key('confirm_upgrade_pro_btn')), findsOneWidget);
@@ -80,8 +80,8 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
-      // Pro is activated: Restores card shows Unlimited, and streak is revived
-      expect(find.text('Unlimited'), findsOneWidget);
+      // Pro is activated: Restores card shows 5 / 5, and streak is revived
+      expect(find.text('5 / 5'), findsOneWidget);
       expect(find.byKey(const Key('restore_streak_btn')), findsNothing);
       expect(find.textContaining('Upgraded to StreakWok Pro!'), findsOneWidget);
     });
