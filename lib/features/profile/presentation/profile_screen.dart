@@ -167,17 +167,132 @@ class ProfileScreen extends StatelessWidget {
             // SECTION: STREAKWOK PRO TIER CARD (UC-03)
             if (!isPro)
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1A1D1E), Color(0xFF2D3748)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
+                      color: Colors.black.withOpacity(0.03),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.workspace_premium_rounded,
+                                color: Color(0xFFFF9800),
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text(
+                                  'StreakWok Pro',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF1A1D1E),
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Unlock advanced squad features',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF6B7280),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'FREE TIER',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF6B7280),
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: const [
+                        Icon(Icons.check_circle_rounded, size: 15, color: Color(0xFF00D09E)),
+                        SizedBox(width: 6),
+                        Text(
+                          '5 Streak Restores / mo',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4B5563)),
+                        ),
+                        SizedBox(width: 16),
+                        Icon(Icons.check_circle_rounded, size: 15, color: Color(0xFF00D09E)),
+                        SizedBox(width: 6),
+                        Text(
+                          '10 Members Capacity',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4B5563)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: ElevatedButton(
+                        key: const Key('profile_upgrade_pro_btn'),
+                        onPressed: () => _showUpgradeProModal(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00D09E),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: const Text(
+                          'Upgrade to Pro • Rp 29.000',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFF00D09E).withOpacity(0.4), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00D09E).withOpacity(0.06),
                       blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
@@ -194,152 +309,34 @@ class ProfileScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFFFB800).withOpacity(0.2),
+                                color: const Color(0xFFE8FDF5),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Icon(
                                 Icons.workspace_premium_rounded,
-                                color: Color(0xFFFFB800),
-                                size: 22,
+                                color: Color(0xFF00A87A),
+                                size: 24,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            const Column(
+                            const SizedBox(width: 12),
+                            Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
+                              children: const [
                                 Text(
                                   'StreakWok Pro',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w900,
-                                    color: Colors.white,
+                                    color: Color(0xFF1A1D1E),
                                   ),
                                 ),
-                                Text(
-                                  'Unlock advanced squad features',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFF94A3B8),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFB800),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'FREE TIER',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF1A1D1E),
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    const Row(
-                      children: [
-                        Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF00D09E)),
-                        SizedBox(width: 6),
-                        Text(
-                          '5 Streak Restores / mo',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE2E8F0)),
-                        ),
-                        SizedBox(width: 14),
-                        Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF00D09E)),
-                        SizedBox(width: 6),
-                        Text(
-                          '10 Members Capacity',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE2E8F0)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 42,
-                      child: ElevatedButton(
-                        key: const Key('profile_upgrade_pro_btn'),
-                        onPressed: () => _showUpgradeProModal(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00D09E),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text(
-                          'Upgrade to Pro • Rp 29.000',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFFFB800).withOpacity(0.5), width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFFB800).withOpacity(0.08),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFB800).withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(
-                                Icons.workspace_premium_rounded,
-                                color: Color(0xFFFFB800),
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            const Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'StreakWok Pro',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                SizedBox(height: 2),
                                 Text(
                                   'Premium squad tier active',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Color(0xFF94A3B8),
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF6B7280),
                                   ),
                                 ),
                               ],
@@ -347,54 +344,55 @@ class ProfileScreen extends StatelessWidget {
                           ],
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFFB800),
+                            color: const Color(0xFFE8FDF5),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Text(
                             'PRO ACTIVE',
                             style: TextStyle(
                               fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF1A1D1E),
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF00A87A),
                               letterSpacing: 0.5,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(12),
+                        color: const Color(0xFFF9FBFA),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE6ECE8), width: 1.0),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           Column(
                             children: [
-                              const Text('Restores Left', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                              const SizedBox(height: 2),
-                              Text('$restoresLeft / 5', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                              const Text('Restores Left', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF6B7280))),
+                              const SizedBox(height: 4),
+                              Text('$restoresLeft / 5', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E))),
                             ],
                           ),
-                          Container(width: 1, height: 24, color: Colors.white.withOpacity(0.1)),
-                          const Column(
+                          Container(width: 1, height: 28, color: const Color(0xFFE6ECE8)),
+                          Column(
                             children: [
-                              Text('Group Capacity', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                              SizedBox(height: 2),
-                              Text('10 Members', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF00D09E))),
+                              const Text('Group Capacity', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF6B7280))),
+                              const SizedBox(height: 4),
+                              const Text('10 Members', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF00A87A))),
                             ],
                           ),
-                          Container(width: 1, height: 24, color: Colors.white.withOpacity(0.1)),
-                          const Column(
+                          Container(width: 1, height: 28, color: const Color(0xFFE6ECE8)),
+                          Column(
                             children: [
-                              Text('Billing Cycle', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                              SizedBox(height: 2),
-                              Text('Active', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFFFFB800))),
+                              const Text('Billing Cycle', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF6B7280))),
+                              const SizedBox(height: 4),
+                              const Text('Active', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFFFF9800))),
                             ],
                           ),
                         ],
