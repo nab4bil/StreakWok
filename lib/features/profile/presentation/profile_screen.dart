@@ -80,23 +80,8 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFFAFCFB),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
           children: [
-            // Top Header (Identical style to prototype)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: const Text(
-                'Me',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1A1D1E),
-                  letterSpacing: -0.4,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
             // Profile Hero Card (Integrated with Pro status per UC-03)
             Container(
               padding: const EdgeInsets.all(20),
@@ -267,12 +252,6 @@ class ProfileScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  _buildDetailRow(
-                    icon: Icons.person_outline_rounded,
-                    label: 'Display Name',
-                    value: userName,
-                  ),
-                  const Divider(height: 1, color: Color(0xFFF1F5F3)),
                   _buildDetailRow(
                     icon: Icons.workspace_premium_rounded,
                     label: 'Account Tier',
