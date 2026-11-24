@@ -731,6 +731,22 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
+  Future<void> _handleUpgradePro() async {
+    final updated = _userProgress.copyWith(
+      isPro: true,
+      maxMembers: 10,
+      restoresLeft: 5,
+    );
+    await _updateUserProgress(updated);
+  }
+
+  Future<void> _handleRestoreQuotaChanged(int newQuota) async {
+    final updated = _userProgress.copyWith(
+      restoresLeft: newQuota,
+    );
+    await _updateUserProgress(updated);
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> screens = [
@@ -761,6 +777,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         inviteCode: _userProgress.inviteCode,
         memberCount: _userProgress.memberCount,
         maxMembers: _userProgress.maxMembers,
+        isPro: _userProgress.isPro,
+        initialRestoresLeft: _userProgress.restoresLeft,
+        onUpgradePro: _handleUpgradePro,
+        onRestoreQuotaChanged: _handleRestoreQuotaChanged,
         onBackPressed: () => _navigateToTab(0),
         onHistoryTap: () => _navigateToTab(2),
         onJoinGroup: _handleJoinGroupFromScreen,
@@ -780,6 +800,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         userName: widget.userName,
         hasGroup: _userProgress.hasGroup,
         groupName: _userProgress.groupName,
+        isPro: _userProgress.isPro,
+        restoresLeft: _userProgress.restoresLeft,
+        onUpgradePro: _handleUpgradePro,
       ),
     ];
 

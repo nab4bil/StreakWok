@@ -23,6 +23,9 @@ class GroupScreen extends StatefulWidget {
   final int streakDays;
   final int? initialRestoresLeft;
   final bool? isPastDeadline;
+  final bool isPro;
+  final VoidCallback? onUpgradePro;
+  final ValueChanged<int>? onRestoreQuotaChanged;
 
   const GroupScreen({
     super.key,
@@ -38,6 +41,9 @@ class GroupScreen extends StatefulWidget {
     this.maxMembers = 4,
     this.initialRestoresLeft,
     this.isPastDeadline,
+    this.isPro = false,
+    this.onUpgradePro,
+    this.onRestoreQuotaChanged,
     this.onBackPressed,
     this.onHistoryTap,
     this.onJoinGroup,
@@ -95,7 +101,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
   void initState() {
     super.initState();
     _isLeaderMode = widget.isLeader;
-    _restoresLeft = widget.initialRestoresLeft ?? 3;
+    _isPro = widget.isPro;
+    _restoresLeft = widget.initialRestoresLeft ?? (_isPro ? 5 : 3);
     _initMembers();
 
     _jiggleController = AnimationController(
@@ -119,6 +126,19 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         oldWidget.userName != widget.userName) {
       _isLeaderMode = widget.isLeader;
       _initMembers();
+    }
+    if (oldWidget.isPro != widget.isPro) {
+      setState(() {
+        _isPro = widget.isPro;
+        if (_isPro && _restoresLeft < 5) {
+          _restoresLeft = 5;
+        }
+      });
+    }
+    if (oldWidget.initialRestoresLeft != widget.initialRestoresLeft && widget.initialRestoresLeft != null) {
+      setState(() {
+        _restoresLeft = widget.initialRestoresLeft!;
+      });
     }
   }
 
@@ -611,6 +631,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         _restoresLeft--;
         _isStreakRestored = true;
       });
+      widget.onRestoreQuotaChanged?.call(_restoresLeft);
       HapticFeedback.mediumImpact();
       _jiggleController.forward(from: 0.0);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -741,6 +762,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                         _restoresLeft = 5;
                         _isStreakRestored = true;
                       });
+                      widget.onUpgradePro?.call();
+                      widget.onRestoreQuotaChanged?.call(5);
                       HapticFeedback.mediumImpact();
                       _jiggleController.forward(from: 0.0);
                       ScaffoldMessenger.of(context).showSnackBar(
