@@ -4,23 +4,48 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../auth/presentation/login_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   final String userName;
+  final String? userEmail;
   final bool hasGroup;
   final String groupName;
   final bool isPro;
   final int restoresLeft;
   final VoidCallback? onUpgradePro;
+  final ValueChanged<String>? onNameChanged;
 
   const ProfileScreen({
     super.key,
     required this.userName,
+    this.userEmail,
     this.hasGroup = false,
     this.groupName = 'gerup ketat',
     this.isPro = false,
     this.restoresLeft = 3,
     this.onUpgradePro,
+    this.onNameChanged,
   });
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late String _currentName;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentName = widget.userName;
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userName != widget.userName) {
+      _currentName = widget.userName;
+    }
+  }
 
   void _handleLogout(BuildContext context) {
     showDialog(
@@ -89,12 +114,12 @@ class ProfileScreen extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(
-                  color: isPro ? const Color(0xFF00D09E).withOpacity(0.4) : const Color(0xFFE6ECE8),
+                  color: widget.isPro ? const Color(0xFF00D09E).withOpacity(0.4) : const Color(0xFFE6ECE8),
                   width: 1.5,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: isPro ? const Color(0xFF00D09E).withOpacity(0.04) : Colors.black.withOpacity(0.03),
+                    color: widget.isPro ? const Color(0xFF00D09E).withOpacity(0.04) : Colors.black.withOpacity(0.03),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -106,7 +131,7 @@ class ProfileScreen extends StatelessWidget {
                     radius: 36,
                     backgroundColor: const Color(0xFF00D09E),
                     child: Text(
-                      userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+                      _currentName.isNotEmpty ? _currentName[0].toUpperCase() : 'U',
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
@@ -116,19 +141,48 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  // Profile Name (Clean, without redundant badge)
-                  Text(
-                    userName,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1A1D1E),
-                    ),
+                  // Profile Name with Edit Button
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _currentName,
+                          key: const Key('profile_name_text'),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1A1D1E),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        key: const Key('edit_profile_name_btn'),
+                        onTap: () => _showEditProfileNameBottomSheet(context),
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF4F7F5),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1),
+                          ),
+                          child: const Icon(
+                            Icons.edit_outlined,
+                            size: 13,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
 
                   // Below profile name: (Pro Active) or Upgrade Action
-                  if (isPro) ...[
+                  if (widget.isPro) ...[
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: const [
@@ -156,7 +210,7 @@ class ProfileScreen extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '$restoresLeft / 5 Restores',
+                            '${widget.restoresLeft} / 5 Restores',
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
                           ),
                           const Padding(
@@ -255,14 +309,14 @@ class ProfileScreen extends StatelessWidget {
                   _buildDetailRow(
                     icon: Icons.workspace_premium_rounded,
                     label: 'Account Tier',
-                    value: isPro ? 'StreakWok Pro' : 'Free Tier',
-                    valueColor: isPro ? const Color(0xFF00A87A) : const Color(0xFF6B7280),
+                    value: widget.isPro ? 'StreakWok Pro' : 'Free Tier',
+                    valueColor: widget.isPro ? const Color(0xFF00A87A) : const Color(0xFF6B7280),
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F3)),
                   _buildDetailRow(
                     icon: Icons.group_outlined,
                     label: 'Group Membership',
-                    value: hasGroup ? groupName : 'No Group Joined',
+                    value: widget.hasGroup ? widget.groupName : 'No Group Joined',
                     valueColor: const Color(0xFF1A1D1E),
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F3)),
@@ -387,6 +441,209 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  void _showEditProfileNameBottomSheet(BuildContext context) {
+    final nameController = TextEditingController(text: _currentName);
+    String? errorText;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: MediaQuery.of(modalContext).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F9F3),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.person_rounded,
+                            color: Color(0xFF00D09E),
+                            size: 26,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Edit your name',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1A1D1E),
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              (widget.userEmail != null && widget.userEmail!.isNotEmpty)
+                                  ? widget.userEmail!
+                                  : 'Customize your workout display name',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Choose a display name for your profile, workout groups, and streaks.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF6B7280),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    key: const Key('edit_name_text_field'),
+                    controller: nameController,
+                    autofocus: true,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1D1E),
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Display Name',
+                      hintText: 'e.g. $_currentName',
+                      prefixIcon: const Icon(
+                        Icons.badge_outlined,
+                        color: Color(0xFF00D09E),
+                        size: 20,
+                      ),
+                      errorText: errorText,
+                      filled: true,
+                      fillColor: const Color(0xFFFAFCFB),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFFE6ECE8)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFFE6ECE8)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFF00D09E), width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      key: const Key('save_profile_name_btn'),
+                      onPressed: () {
+                        final rawInput = nameController.text.trim();
+                        if (rawInput.isEmpty) {
+                          setModalState(() => errorText = 'Name cannot be empty');
+                          return;
+                        }
+                        if (rawInput.length < 2) {
+                          setModalState(() => errorText = 'Name must be at least 2 characters');
+                          return;
+                        }
+                        if (rawInput.length > 25) {
+                          setModalState(() => errorText = 'Name cannot exceed 25 characters');
+                          return;
+                        }
+                        if (!RegExp(r"^[a-zA-Z0-9\s.'-]+$").hasMatch(rawInput)) {
+                          setModalState(() => errorText = 'Please enter a valid name (letters, numbers, spaces)');
+                          return;
+                        }
+                        const reservedNames = ['admin', 'streakwok', 'system', 'moderator', 'root'];
+                        if (reservedNames.contains(rawInput.toLowerCase().trim())) {
+                          setModalState(() => errorText = 'This name is reserved by system');
+                          return;
+                        }
+
+                        final sanitized = rawInput.replaceAll(RegExp(r'\s+'), ' ');
+                        Navigator.pop(modalContext);
+                        _handleNameUpdated(sanitized);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00D09E),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Save Changes',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _handleNameUpdated(String newName) {
+    setState(() {
+      _currentName = newName;
+    });
+    widget.onNameChanged?.call(newName);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Display name updated to "$newName"'),
+        backgroundColor: const Color(0xFF00D09E),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   void _showUpgradeProModal(BuildContext context) {
     int selectedPlanIndex = 1; // Default yearly
 
@@ -496,7 +753,7 @@ class ProfileScreen extends StatelessWidget {
                   key: const Key('confirm_upgrade_pro_btn'),
                   onPressed: () {
                     Navigator.of(sheetContext).pop();
-                    onUpgradePro?.call();
+                    widget.onUpgradePro?.call();
                     HapticFeedback.mediumImpact();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
