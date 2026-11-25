@@ -30,11 +30,15 @@ class WorkoutSessionResult {
   final WorkoutSessionExitAction action;
   final int dayNumber;
   final int exerciseIndex;
+  final int durationSeconds;
+  final int totalReps;
 
   const WorkoutSessionResult({
     required this.action,
     required this.dayNumber,
     this.exerciseIndex = 0,
+    this.durationSeconds = 0,
+    this.totalReps = 0,
   });
 }
 
@@ -83,6 +87,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   int _targetReps = 12;
   bool _isTimedExercise = false;
   int _timedSecondsRemaining = 30;
+  int _sessionTotalReps = 0;
 
   // Rest Interval State
   int _restSecondsRemaining = 20;
@@ -614,8 +619,6 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     }
   }
 
-  void _showCancelDialog() => _showExitOptionsDialog();
-
   // Increment rep (called automatically by ML Kit pose analyzer or manual fallback)
   void _incrementRep() {
     if (_isPaused || _isCancelDialogOpen || _phase != WorkoutSessionPhase.active) return;
@@ -641,6 +644,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   }
 
   void _onCompleteCurrentExercise() {
+    if (!_isTimedExercise) {
+      _sessionTotalReps += _currentReps;
+    }
     if (_currentExerciseIndex < _exercises.length - 1) {
       setState(() {
         _phase = WorkoutSessionPhase.rest;
@@ -1599,6 +1605,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                     WorkoutSessionResult(
                       action: WorkoutSessionExitAction.completed,
                       dayNumber: widget.dayPlan.dayNumber,
+                      durationSeconds: _totalElapsedSeconds,
+                      totalReps: _sessionTotalReps,
                     ),
                   );
                 },

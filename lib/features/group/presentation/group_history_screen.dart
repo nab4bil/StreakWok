@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../../../core/services/user_progress_service.dart';
 
-class GroupHistoryScreen extends StatelessWidget {
+class GroupHistoryScreen extends StatefulWidget {
   final String groupName;
   final bool isLeader;
   final String userName;
   final bool isUserCompleted;
+  final List<WorkoutHistoryEntry> historyEntries;
+  final List<String> memberNames;
+  final DateTime? referenceDate;
 
   const GroupHistoryScreen({
     super.key,
@@ -12,16 +17,59 @@ class GroupHistoryScreen extends StatelessWidget {
     this.isLeader = false,
     this.userName = 'rudi musikal',
     this.isUserCompleted = false,
+    this.historyEntries = const [],
+    this.memberNames = const [],
+    this.referenceDate,
   });
 
   @override
+  State<GroupHistoryScreen> createState() => _GroupHistoryScreenState();
+}
+
+class _GroupHistoryScreenState extends State<GroupHistoryScreen> {
+  late DateTime _displayedMonth;
+
+  DateTime get _today => widget.referenceDate ?? DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    final now = _today;
+    _displayedMonth = DateTime(now.year, now.month, 1);
+  }
+
+  void _changeMonth(int deltaMonths) {
+    setState(() {
+      _displayedMonth = DateTime(
+        _displayedMonth.year,
+        _displayedMonth.month + deltaMonths,
+        1,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final monthEntries = widget.historyEntries
+        .where(
+          (e) =>
+              e.completedAt.year == _displayedMonth.year &&
+              e.completedAt.month == _displayedMonth.month,
+        )
+        .toList()
+      ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
+
+    final monthLabel = DateFormat('MMMM yyyy').format(_displayedMonth);
+    final activeMembers = widget.memberNames.isNotEmpty
+        ? widget.memberNames
+        : [widget.userName.toLowerCase()];
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAFCFB),
       body: SafeArea(
         child: Column(
           children: [
-            // Top Navigation Header (Identik 1:1 dengan group_history_screen.html)
+            // Top Navigation Header
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               decoration: const BoxDecoration(
@@ -57,7 +105,7 @@ class GroupHistoryScreen extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        groupName,
+                        widget.groupName,
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -66,7 +114,7 @@ class GroupHistoryScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(width: 32), // Placeholder balance
+                  const SizedBox(width: 32),
                 ],
               ),
             ),
@@ -74,53 +122,73 @@ class GroupHistoryScreen extends StatelessWidget {
             // Scrollable Content
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 children: [
-                  // Month Selector (October 2026)
+                  // Month Selector
                   Container(
                     margin: const EdgeInsets.only(bottom: 14),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Icon(Icons.chevron_left_rounded, size: 22, color: Color(0xFF1A1D1E)),
+                      children: [
+                        GestureDetector(
+                          onTap: () => _changeMonth(-1),
+                          behavior: HitTestBehavior.opaque,
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.chevron_left_rounded,
+                                size: 22, color: Color(0xFF1A1D1E)),
+                          ),
+                        ),
                         Text(
-                          'October 2026',
-                          style: TextStyle(
+                          monthLabel,
+                          style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF1A1D1E),
                           ),
                         ),
-                        Icon(Icons.chevron_right_rounded, size: 22, color: Color(0xFF1A1D1E)),
+                        GestureDetector(
+                          onTap: () => _changeMonth(1),
+                          behavior: HitTestBehavior.opaque,
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.chevron_right_rounded,
+                                size: 22, color: Color(0xFF1A1D1E)),
+                          ),
+                        ),
                       ],
                     ),
                   ),
 
-                  // CALENDAR GRID (GROUP STREAK REPUTATION)
+                  // DYNAMIC CALENDAR GRID (GROUP STREAK REPUTATION)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 16),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                      border: Border.all(
+                          color: const Color(0xFFE6ECE8), width: 1.5),
                     ),
                     child: Column(
                       children: [
-                        Row(
+                        const Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: const [
-                            _WeekdayLabel('Sun'),
-                            _WeekdayLabel('Mon'),
-                            _WeekdayLabel('Tue'),
-                            _WeekdayLabel('Wed'),
-                            _WeekdayLabel('Thu'),
-                            _WeekdayLabel('Fri'),
-                            _WeekdayLabel('Sat'),
+                          children: [
+                            _WeekdayLabel('S'),
+                            _WeekdayLabel('M'),
+                            _WeekdayLabel('T'),
+                            _WeekdayLabel('W'),
+                            _WeekdayLabel('T'),
+                            _WeekdayLabel('F'),
+                            _WeekdayLabel('S'),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _buildGroupCalendarGrid(),
+                        _buildGroupCalendarGrid(monthEntries),
                       ],
                     ),
                   ),
@@ -139,80 +207,70 @@ class GroupHistoryScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  if (isLeader) ...[
-                    if (isUserCompleted) ...[
-                      _buildGroupActivityCard(
-                        title: 'Day 1 | Push-up • Squat • Plank',
-                        date: 'Sunday, Oct 18, 2026',
-                        statusText: '1/1 Done',
-                        isSuccess: true,
-                        members: [userName.toLowerCase()],
+                  if (monthEntries.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 36, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: const Color(0xFFE6ECE8), width: 1.5),
                       ),
-                    ] else ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
-                        ),
-                        child: Center(
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F3),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: const Icon(Icons.history_rounded, color: Color(0xFF8C949D), size: 24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F3),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                'No activity recorded yet',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Complete today\'s workout to start your group streak log!',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF8C949D)),
-                              ),
-                            ],
-                          ),
+                              child: const Icon(Icons.history_rounded,
+                                  color: Color(0xFF8C949D), size: 24),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'No activity recorded in $monthLabel',
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF1A1D1E)),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Complete today\'s workout to record your group streak log!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF8C949D)),
+                            ),
+                          ],
                         ),
                       ),
+                    )
+                  else
+                    for (int i = 0; i < monthEntries.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 12),
+                      if (monthEntries[i].isRestDay)
+                        _buildRestDayCard(
+                          title: monthEntries[i].formattedTitle,
+                          date: DateFormat('EEEE, MMM d, yyyy')
+                              .format(monthEntries[i].completedAt),
+                        )
+                      else
+                        _buildGroupActivityCard(
+                          title: monthEntries[i].formattedTitle,
+                          date: DateFormat('EEEE, MMM d, yyyy')
+                              .format(monthEntries[i].completedAt),
+                          statusText:
+                              '${activeMembers.length}/${activeMembers.length} Active',
+                          isSuccess: true,
+                          members: activeMembers,
+                        ),
                     ],
-                  ] else ...[
-                    // Activity 1: Day 13 (Push-up • Sit-up • Plank)
-                    _buildGroupActivityCard(
-                      title: 'Day 13 | Push-up • Sit-up • Plank',
-                      date: 'Saturday, Oct 17, 2026',
-                      statusText: '3/3 Done',
-                      isSuccess: true,
-                      members: ['tono hardija', 'rudi musikal', 'mahmud buah'],
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Activity 2: Day 12 (Rest Day)
-                    _buildRestDayCard(
-                      title: 'Day 12 | Rest & Muscle Recovery',
-                      date: 'Friday, Oct 16, 2026',
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Activity 3: Day 11 (Push-up • Squat • Plank)
-                    _buildGroupActivityCard(
-                      title: 'Day 11 | Push-up • Squat • Plank',
-                      date: 'Thursday, Oct 15, 2026',
-                      statusText: '3/3 Done',
-                      isSuccess: true,
-                      members: ['tono hardija', 'rudi musikal', 'mahmud buah'],
-                    ),
-                  ],
 
                   const SizedBox(height: 30),
                 ],
@@ -224,54 +282,38 @@ class GroupHistoryScreen extends StatelessWidget {
     );
   }
 
-  // 35 Cells Calendar Grid (Identik dengan group_history_screen.html)
-  Widget _buildGroupCalendarGrid() {
-    final cells = <Widget>[
-      // Row 1: 4 empty (Thu Oct 1)
-      const _EmptyCell(),
-      const _EmptyCell(),
-      const _EmptyCell(),
-      const _EmptyCell(),
-      const _DayCell('1'),
-      const _DayCell('2'),
-      const _DayCell('3'),
+  Widget _buildGroupCalendarGrid(List<WorkoutHistoryEntry> monthEntries) {
+    final daysInMonth =
+        DateUtils.getDaysInMonth(_displayedMonth.year, _displayedMonth.month);
+    final leadingEmpty =
+        DateTime(_displayedMonth.year, _displayedMonth.month, 1).weekday % 7;
 
-      // Row 2: Oct 4 - 10 Done by all if existing group (Day 4 & 8 are rest days)
-      _DayCell('4', isDone: !isLeader, isRest: true),
-      _DayCell('5', isDone: !isLeader),
-      _DayCell('6', isDone: !isLeader),
-      _DayCell('7', isDone: !isLeader),
-      _DayCell('8', isDone: !isLeader, isRest: true),
-      _DayCell('9', isDone: !isLeader),
-      _DayCell('10', isDone: !isLeader),
+    final entriesByDay = <int, WorkoutHistoryEntry>{};
+    for (final entry in monthEntries) {
+      entriesByDay[entry.completedAt.day] = entry;
+    }
 
-      // Row 3: Oct 11 - 17 Done by all if existing group (Day 12 & 16 are rest days)
-      _DayCell('11', isDone: !isLeader),
-      _DayCell('12', isDone: !isLeader, isRest: true),
-      _DayCell('13', isDone: !isLeader),
-      _DayCell('14', isDone: !isLeader),
-      _DayCell('15', isDone: !isLeader),
-      _DayCell('16', isDone: !isLeader, isRest: true),
-      _DayCell('17', isDone: !isLeader),
+    final today = _today;
+    final isCurrentMonth = today.year == _displayedMonth.year &&
+        today.month == _displayedMonth.month;
 
-      // Row 4: Oct 18 Active Today (In Progress)
-      _DayCell('18', isActiveToday: true, isDone: isLeader ? isUserCompleted : false),
-      const _DayCell('19'),
-      const _DayCell('20', isRest: true),
-      const _DayCell('21'),
-      const _DayCell('22'),
-      const _DayCell('23'),
-      const _DayCell('24', isRest: true),
+    final cells = <Widget>[];
+    for (int i = 0; i < leadingEmpty; i++) {
+      cells.add(const _EmptyCell());
+    }
 
-      // Row 5: Remaining days
-      const _DayCell('25'),
-      const _DayCell('26'),
-      const _DayCell('27'),
-      const _DayCell('28', isRest: true),
-      const _DayCell('29'),
-      const _DayCell('30'),
-      const _DayCell('31'),
-    ];
+    for (int day = 1; day <= daysInMonth; day++) {
+      final entry = entriesByDay[day];
+      final isActiveToday = isCurrentMonth && today.day == day;
+      cells.add(
+        _DayCell(
+          '$day',
+          isDone: entry != null,
+          isActiveToday: isActiveToday,
+          isRest: entry?.isRestDay ?? false,
+        ),
+      );
+    }
 
     return GridView.count(
       crossAxisCount: 7,
@@ -303,32 +345,38 @@ class GroupHistoryScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1A1D1E),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1A1D1E),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    date,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF8C949D),
+                    const SizedBox(height: 2),
+                    Text(
+                      date,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8C949D),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isSuccess ? const Color(0xFF00D09E) : const Color(0xFFEF4444),
+                  color: isSuccess
+                      ? const Color(0xFF00D09E)
+                      : const Color(0xFFEF4444),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -350,7 +398,8 @@ class GroupHistoryScreen extends StatelessWidget {
             runSpacing: 6,
             children: members.map((member) {
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAF9),
                   borderRadius: BorderRadius.circular(8),
@@ -386,30 +435,34 @@ class GroupHistoryScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1A1D1E),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1A1D1E),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    date,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF8C949D),
+                    const SizedBox(height: 2),
+                    Text(
+                      date,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8C949D),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFF3B82F6),
                   borderRadius: BorderRadius.circular(10),
@@ -474,7 +527,12 @@ class _DayCell extends StatelessWidget {
   final bool isActiveToday;
   final bool isRest;
 
-  const _DayCell(this.day, {this.isDone = false, this.isActiveToday = false, this.isRest = false});
+  const _DayCell(
+    this.day, {
+    this.isDone = false,
+    this.isActiveToday = false,
+    this.isRest = false,
+  });
 
   @override
   Widget build(BuildContext context) {
