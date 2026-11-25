@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
@@ -128,12 +129,27 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   Size _latestImageSize = Size.zero;
   String _poseFeedback = 'Show full body in camera view';
   bool _isHoldingPlankForm = false;
+  bool _showDebugManualControls = false;
   double? _primaryAngle;
 
   bool get _hasFreshPlankHold {
     if (!_isHoldingPlankForm || _lastPlankHoldAt == null) return false;
     return DateTime.now().difference(_lastPlankHoldAt!) <=
         const Duration(milliseconds: 1200);
+  }
+
+  bool get _shouldShowManualActionButton =>
+      _cameraState == _CameraPipelineState.fallbackSimulation ||
+      (kDebugMode &&
+          _showDebugManualControls &&
+          _cameraState == _CameraPipelineState.active);
+
+  void _toggleDebugManualControls() {
+    if (!kDebugMode || _cameraState != _CameraPipelineState.active) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _showDebugManualControls = !_showDebugManualControls;
+    });
   }
 
   late AnimationController _pulseController;
@@ -1165,34 +1181,50 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE8F9F3),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: const Color(0xFFBCEBDC)),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: AppColors.primary,
-                                        shape: BoxShape.circle,
-                                      ),
+                              GestureDetector(
+                                key: const Key('ai_tracker_debug_toggle'),
+                                onTap: _toggleDebugManualControls,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: _showDebugManualControls && kDebugMode
+                                        ? const Color(0xFFFEF3C7)
+                                        : const Color(0xFFE8F9F3),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _showDebugManualControls && kDebugMode
+                                          ? const Color(0xFFF59E0B)
+                                          : const Color(0xFFBCEBDC),
                                     ),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      'AI Pose Tracker Active',
-                                      style: TextStyle(
-                                        color: Color(0xFF007A58),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: _showDebugManualControls && kDebugMode
+                                              ? const Color(0xFFD97706)
+                                              : AppColors.primary,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _showDebugManualControls && kDebugMode
+                                            ? 'AI Pose Tracker Active (Debug)'
+                                            : 'AI Pose Tracker Active',
+                                        style: TextStyle(
+                                          color: _showDebugManualControls && kDebugMode
+                                              ? const Color(0xFFB45309)
+                                              : const Color(0xFF007A58),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -1392,8 +1424,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
               ),
             ),
 
-            // INTERACTIVE ACTION / FALLBACK BUTTON (Headless simulation/tests only)
-            if (_cameraState == _CameraPipelineState.fallbackSimulation)
+            // INTERACTIVE ACTION / FALLBACK BUTTON (Headless tests or explicit Debug toggle)
+            if (_shouldShowManualActionButton)
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
                 child: SizedBox(
@@ -1406,9 +1438,13 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                       size: 20,
                     ),
                     label: Text(
-                      _isTimedExercise
-                          ? 'Complete Plank'
-                          : '+1 Rep (Tap / Detected)',
+                      _cameraState == _CameraPipelineState.fallbackSimulation
+                          ? (_isTimedExercise
+                              ? 'Complete Plank'
+                              : '+1 Rep (Tap / Detected)')
+                          : (_isTimedExercise
+                              ? 'Complete Plank (Debug)'
+                              : 'Manual +1 Rep (Debug)'),
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                     ),
                     style: ElevatedButton.styleFrom(
