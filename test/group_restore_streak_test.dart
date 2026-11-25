@@ -24,9 +24,16 @@ void main() {
       expect(find.text('Restore Streak'), findsOneWidget);
       expect(find.text('3 / 3'), findsOneWidget);
 
-      // Tap Restore Streak button
+      // Tap Restore Streak button -> opens confirmation dialog (UC-12 <<extend>>)
       final restoreBtn = find.byKey(const Key('restore_streak_btn'));
       await tester.tap(restoreBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Restore Group Streak?'), findsOneWidget);
+      expect(find.byKey(const Key('confirm_restore_streak_btn')), findsOneWidget);
+
+      // Confirm restore
+      await tester.tap(find.byKey(const Key('confirm_restore_streak_btn')));
       await tester.pump(); // Start jiggle animation
       await tester.pump(const Duration(milliseconds: 300)); // Midway in jiggle
       await tester.pumpAndSettle(); // Complete animation and show snackbar
@@ -39,6 +46,57 @@ void main() {
 
       // Success SnackBar is shown
       expect(find.text('Streak restored! 2 restores left this month.'), findsOneWidget);
+    });
+
+    testWidgets('1b. Canceling restore dialog does not deduct restore quota (UC-12 Alternative Flow)', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: GroupScreen(
+              userName: 'ambaroni',
+              isLeader: true,
+              isUserCompleted: true,
+              isPastDeadline: true,
+              initialRestoresLeft: 3,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('restore_streak_btn')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Restore Group Streak?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('cancel_restore_streak_btn')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 / 3'), findsOneWidget);
+      expect(find.byKey(const Key('restore_streak_btn')), findsOneWidget);
+    });
+
+    testWidgets('1c. Restore rejected when past 13:00 restore window (UC-12 Exception Flow)', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: GroupScreen(
+              userName: 'ambaroni',
+              isLeader: true,
+              isUserCompleted: true,
+              isPastDeadline: true,
+              isRestoreDeadlineExpired: true,
+              initialRestoresLeft: 3,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('restore_streak_btn')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Waktu habis'), findsOneWidget);
+      expect(find.text('3 / 3'), findsOneWidget);
     });
 
     testWidgets('2. When monthly restores are exhausted (0/3), tapping Restore Streak opens Pro upgrade modal (UC-03)', (WidgetTester tester) async {
@@ -73,6 +131,12 @@ void main() {
       expect(find.text('5 Streak Restores per Month'), findsOneWidget);
       expect(find.text('10 Members Group Capacity'), findsOneWidget);
       expect(find.text('Save 40%'), findsOneWidget);
+      expect(find.byKey(const Key('proceed_upgrade_pro_btn')), findsOneWidget);
+
+      // Step 1 -> open confirmation dialog (UC-03 <<extend>>)
+      await tester.tap(find.byKey(const Key('proceed_upgrade_pro_btn')));
+      await tester.pumpAndSettle();
+      expect(find.text('Confirm Upgrade'), findsOneWidget);
       expect(find.byKey(const Key('confirm_upgrade_pro_btn')), findsOneWidget);
 
       // Confirm upgrade to Pro

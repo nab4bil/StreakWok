@@ -37,7 +37,21 @@ void main() {
       expect(find.text('10 Members Group Capacity'), findsOneWidget);
       expect(find.text('Save 40%'), findsOneWidget);
 
-      // Confirm upgrade
+      // Proceed to confirmation dialog (UC-03 <<extend>>)
+      expect(find.byKey(const Key('proceed_upgrade_pro_btn')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('proceed_upgrade_pro_btn')));
+      await tester.pumpAndSettle();
+      expect(find.text('Confirm Upgrade'), findsOneWidget);
+
+      // Alternative Flow: canceling returns back to subscription plan modal
+      await tester.tap(find.byKey(const Key('cancel_upgrade_payment_btn')));
+      await tester.pumpAndSettle();
+      expect(upgraded, isFalse);
+      expect(find.byKey(const Key('proceed_upgrade_pro_btn')), findsOneWidget);
+
+      // Proceed again and confirm payment
+      await tester.tap(find.byKey(const Key('proceed_upgrade_pro_btn')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('confirm_upgrade_pro_btn')), findsOneWidget);
       await tester.tap(find.byKey(const Key('confirm_upgrade_pro_btn')));
       await tester.pump();
@@ -46,6 +60,35 @@ void main() {
       // Modal closed and callback fired
       expect(upgraded, isTrue);
       expect(find.textContaining('Upgraded to StreakWok Pro!'), findsOneWidget);
+    });
+
+    testWidgets('4. Interrupted upgrade transaction shows Upgrade dibatalkan without upgrading (UC-03 Exception)', (WidgetTester tester) async {
+      bool upgraded = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ProfileScreen(
+            userName: 'ambaroni',
+            hasGroup: true,
+            groupName: 'gerup ketat',
+            isPro: false,
+            restoresLeft: 3,
+            onUpgradePro: () => upgraded = true,
+            onProcessUpgradePayment: (_) async => false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('profile_upgrade_pro_btn')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('proceed_upgrade_pro_btn')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm_upgrade_pro_btn')));
+      await tester.pumpAndSettle();
+
+      expect(upgraded, isFalse);
+      expect(find.text('Upgrade dibatalkan'), findsOneWidget);
     });
 
     testWidgets('2. Pro tier shows Pro Active label under name, and 10 members capacity', (WidgetTester tester) async {

@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../domain/workout_plan_model.dart';
@@ -12,6 +13,7 @@ class DashboardScreen extends StatefulWidget {
   final bool isLeader;
   final int currentActiveDay;
   final int streakDays;
+  final String workoutDifficulty;
   final VoidCallback onToggleWorkout;
   final VoidCallback? onViewGroup;
   final VoidCallback? onJoinGroupTap;
@@ -31,6 +33,7 @@ class DashboardScreen extends StatefulWidget {
     this.isLeader = false,
     this.currentActiveDay = 1,
     this.streakDays = 0,
+    this.workoutDifficulty = 'Intermediate',
     required this.onToggleWorkout,
     this.onViewGroup,
     this.onJoinGroupTap,
@@ -50,6 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   int? _pausedDayNumber;
   int? _pausedExerciseIndex;
+  int? _pausedSetIndex;
 
   static const double _cardHeight = 99.0;
   static const double _cardSpacing = 14.0;
@@ -129,13 +133,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else if (plan != null) {
       final isPaused = _pausedDayNumber == plan.dayNumber;
       final initialIndex = isPaused ? (_pausedExerciseIndex ?? 0) : 0;
-      _startInteractiveWorkoutSession(plan, initialExerciseIndex: initialIndex);
+      final initialSet = isPaused ? (_pausedSetIndex ?? 1) : 1;
+      _startInteractiveWorkoutSession(
+        plan,
+        initialExerciseIndex: initialIndex,
+        initialSetIndex: initialSet,
+      );
     } else {
       widget.onToggleWorkout();
     }
   }
 
-  void _startInteractiveWorkoutSession(WorkoutDayPlan plan, {int initialExerciseIndex = 0}) async {
+  void _startInteractiveWorkoutSession(
+    WorkoutDayPlan plan, {
+    int initialExerciseIndex = 0,
+    int initialSetIndex = 1,
+  }) async {
     final result = await Navigator.push<WorkoutSessionResult>(
       context,
       CupertinoPageRoute(
@@ -143,6 +156,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           dayPlan: plan,
           userName: widget.userName,
           initialExerciseIndex: initialExerciseIndex,
+          initialSetIndex: initialSetIndex,
+          difficulty: widget.hasGroup ? widget.workoutDifficulty : 'Intermediate',
         ),
       ),
     );
@@ -153,6 +168,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _pausedDayNumber = null;
         _pausedExerciseIndex = null;
+        _pausedSetIndex = null;
       });
       if (widget.onRecordWorkoutSession != null) {
         widget.onRecordWorkoutSession!(
@@ -168,12 +184,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _pausedDayNumber = result.dayNumber;
         _pausedExerciseIndex = result.exerciseIndex;
+        _pausedSetIndex = result.setIndex;
       });
     } else if (result.action == WorkoutSessionExitAction.quit) {
       setState(() {
         if (_pausedDayNumber == result.dayNumber) {
           _pausedDayNumber = null;
           _pausedExerciseIndex = null;
+          _pausedSetIndex = null;
         }
       });
     }
@@ -331,33 +349,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                       ),
                     ),
-                    // State Switch Pill
-                    GestureDetector(
-                      onTap: widget.onToggleGroupState,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F3),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFDCE7E1)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.swap_horiz, size: 14, color: Color(0xFF4B5563)),
-                            const SizedBox(width: 4),
-                            Text(
-                              widget.hasGroup ? '⇄ In Group' : '⇄ No Group',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF4B5563),
+                    // State Switch Pill (debug / demo helper only)
+                    if (kDebugMode)
+                      GestureDetector(
+                        onTap: widget.onToggleGroupState,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F3),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFDCE7E1)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.swap_horiz, size: 14, color: Color(0xFF4B5563)),
+                              const SizedBox(width: 4),
+                              Text(
+                                widget.hasGroup ? '⇄ In Group' : '⇄ No Group',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF4B5563),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),

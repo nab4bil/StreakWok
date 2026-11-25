@@ -30,6 +30,7 @@ class WorkoutSessionResult {
   final WorkoutSessionExitAction action;
   final int dayNumber;
   final int exerciseIndex;
+  final int setIndex;
   final int durationSeconds;
   final int totalReps;
 
@@ -37,6 +38,7 @@ class WorkoutSessionResult {
     required this.action,
     required this.dayNumber,
     this.exerciseIndex = 0,
+    this.setIndex = 1,
     this.durationSeconds = 0,
     this.totalReps = 0,
   });
@@ -47,6 +49,8 @@ class WorkoutSessionScreen extends StatefulWidget {
   final VoidCallback? onSessionCompleted;
   final String userName;
   final int initialExerciseIndex;
+  final int initialSetIndex;
+  final String? difficulty;
   final bool? enableLiveCamera;
 
   const WorkoutSessionScreen({
@@ -55,6 +59,8 @@ class WorkoutSessionScreen extends StatefulWidget {
     this.onSessionCompleted,
     this.userName = 'User',
     this.initialExerciseIndex = 0,
+    this.initialSetIndex = 1,
+    this.difficulty,
     this.enableLiveCamera,
   });
 
@@ -81,13 +87,22 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   int _totalElapsedSeconds = 0;
   Timer? _workoutTimer;
 
-  // Current Exercise State
+  // Current Exercise & Set State
   int _currentExerciseIndex = 0;
+  int _currentSet = 1;
   int _currentReps = 0;
   int _targetReps = 12;
   bool _isTimedExercise = false;
   int _timedSecondsRemaining = 30;
   int _sessionTotalReps = 0;
+
+  WorkoutDifficultySpec? get _difficultySpec => widget.difficulty != null
+      ? WorkoutDifficultySpec.fromLabel(widget.difficulty)
+      : null;
+
+  int get _totalSets => _difficultySpec?.sets ?? 1;
+  int get _defaultRestSeconds => _difficultySpec?.restSeconds ?? 20;
+  int get _plankDurationSeconds => _difficultySpec?.plankSeconds ?? 30;
 
   // Rest Interval State
   int _restSecondsRemaining = 20;
@@ -133,6 +148,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
         widget.initialExerciseIndex < _exercises.length) {
       _currentExerciseIndex = widget.initialExerciseIndex;
     }
+    _currentSet = widget.initialSetIndex.clamp(1, _totalSets);
+    _restSecondsRemaining = _defaultRestSeconds;
 
     _poseAnalyzer = ExercisePoseAnalyzer(exerciseName: _currentExerciseName);
     _initCamera(fromInitState: true);
@@ -400,8 +417,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     final name = _currentExerciseName.toLowerCase();
     if (name.contains('plank')) {
       _isTimedExercise = true;
-      _timedSecondsRemaining = 30;
-      _targetReps = 30;
+      _timedSecondsRemaining = _plankDurationSeconds;
+      _targetReps = _plankDurationSeconds;
+    } else if (_difficultySpec != null) {
+      _isTimedExercise = false;
+      _targetReps = _difficultySpec!.targetRepsForExercise(_currentExerciseName);
     } else if (name.contains('squat') || name.contains('sit-up') || name.contains('leg raises')) {
       _isTimedExercise = false;
       _targetReps = 15;
@@ -468,7 +488,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
               (_cameraState != _CameraPipelineState.active || _isHoldingPlankForm);
           if (shouldTickPlank) {
             _timedSecondsRemaining--;
-            _currentReps = 30 - _timedSecondsRemaining;
+            _currentReps = _plankDurationSeconds - _timedSecondsRemaining;
             if (_timedSecondsRemaining == 0) {
               _onCompleteCurrentExercise();
             }
@@ -601,6 +621,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
           action: WorkoutSessionExitAction.doItLater,
           dayNumber: widget.dayPlan.dayNumber,
           exerciseIndex: _currentExerciseIndex,
+          setIndex: _currentSet,
         ),
       );
     } else if (selectedAction == WorkoutSessionExitAction.quit) {
@@ -647,10 +668,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     if (!_isTimedExercise) {
       _sessionTotalReps += _currentReps;
     }
-    if (_currentExerciseIndex < _exercises.length - 1) {
+    final hasMoreExercises = _currentExerciseIndex < _exercises.length - 1;
+    final hasMoreSets = _currentSet < _totalSets;
+    if (hasMoreExercises || hasMoreSets) {
       setState(() {
         _phase = WorkoutSessionPhase.rest;
-        _restSecondsRemaining = 20;
+        _restSecondsRemaining = _defaultRestSeconds;
       });
       _startRestTimer();
     } else {
@@ -691,7 +714,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
   void _advanceToNextExercise() {
     setState(() {
-      _currentExerciseIndex++;
+      if (_currentExerciseIndex + 1 < _exercises.length) {
+        _currentExerciseIndex++;
+      } else if (_currentSet < _totalSets) {
+        _currentSet++;
+        _currentExerciseIndex = 0;
+      }
       _setupTargetForCurrentExercise();
       _phase = WorkoutSessionPhase.active;
     });
@@ -993,7 +1021,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Exercise ${_currentExerciseIndex + 1} of ${_exercises.length}',
+                        _totalSets > 1
+                            ? 'Set $_currentSet/$_totalSets • Exercise ${_currentExerciseIndex + 1} of ${_exercises.length}'
+                            : 'Exercise ${_currentExerciseIndex + 1} of ${_exercises.length}',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -1365,9 +1395,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
   // 3. REST INTERVAL PHASE (Clean Light Theme per SDD with Animated Preview)
   Widget _buildRestPhase() {
-    final nextExercise = (_currentExerciseIndex + 1 < _exercises.length)
+    final bool isNextNewSet = _currentExerciseIndex + 1 >= _exercises.length;
+    final nextExercise = !isNextNewSet
         ? _exercises[_currentExerciseIndex + 1]
-        : 'Final stretch';
+        : (_currentSet < _totalSets ? _exercises.first : 'Final stretch');
+    final nextSetNumber = isNextNewSet ? _currentSet + 1 : _currentSet;
     final lottieAsset = _getExerciseLottieAsset(nextExercise);
 
     return Stack(
@@ -1435,6 +1467,17 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                   nextExercise,
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textMain),
                 ),
+                if (_totalSets > 1) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Set $nextSetNumber of $_totalSets',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
 
                 // Enlarged borderless Lottie animation
@@ -1579,7 +1622,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                   _buildSummaryMetric(
                     icon: Icons.fitness_center_rounded,
                     label: 'Exercises',
-                    value: '${_exercises.length}/${_exercises.length}',
+                    value: '${_exercises.length * _totalSets}/${_exercises.length * _totalSets}',
                   ),
                   Container(width: 1, height: 40, color: const Color(0xFFEEF2F0)),
                   _buildSummaryMetric(

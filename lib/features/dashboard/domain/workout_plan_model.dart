@@ -1,3 +1,83 @@
+/// Tingkat kesulitan workout yang menentukan jumlah set, repetisi/durasi, dan jeda istirahat.
+enum WorkoutDifficulty {
+  beginner,
+  intermediate,
+  advanced,
+}
+
+class WorkoutDifficultySpec {
+  final WorkoutDifficulty difficulty;
+  final String label;
+  final String summaryLabel;
+  final int sets;
+  final int plankSeconds;
+  final int restSeconds;
+
+  const WorkoutDifficultySpec({
+    required this.difficulty,
+    required this.label,
+    required this.summaryLabel,
+    required this.sets,
+    required this.plankSeconds,
+    required this.restSeconds,
+  });
+
+  int targetRepsForExercise(String exerciseName) {
+    final lower = exerciseName.toLowerCase();
+    switch (difficulty) {
+      case WorkoutDifficulty.beginner:
+        if (lower.contains('squat') || lower.contains('sit-up') || lower.contains('situp') || lower.contains('leg')) {
+          return 10;
+        }
+        return 8;
+      case WorkoutDifficulty.intermediate:
+        return 15;
+      case WorkoutDifficulty.advanced:
+        return 20;
+    }
+  }
+
+  static const WorkoutDifficultySpec beginnerSpec = WorkoutDifficultySpec(
+    difficulty: WorkoutDifficulty.beginner,
+    label: 'Beginner',
+    summaryLabel: '3 sets • 8–10 reps • 45s rest (Light)',
+    sets: 3,
+    plankSeconds: 20,
+    restSeconds: 45,
+  );
+
+  static const WorkoutDifficultySpec intermediateSpec = WorkoutDifficultySpec(
+    difficulty: WorkoutDifficulty.intermediate,
+    label: 'Intermediate',
+    summaryLabel: '3 sets • 15 reps • 30s rest (Moderate)',
+    sets: 3,
+    plankSeconds: 30,
+    restSeconds: 30,
+  );
+
+  static const WorkoutDifficultySpec advancedSpec = WorkoutDifficultySpec(
+    difficulty: WorkoutDifficulty.advanced,
+    label: 'Advanced',
+    summaryLabel: '4 sets • 20 reps • 20s rest (Intense)',
+    sets: 4,
+    plankSeconds: 45,
+    restSeconds: 20,
+  );
+
+  static List<WorkoutDifficultySpec> get all => const [
+        beginnerSpec,
+        intermediateSpec,
+        advancedSpec,
+      ];
+
+  static WorkoutDifficultySpec fromLabel(String? label) {
+    final normalized = (label ?? '').trim().toLowerCase();
+    if (normalized == 'beginner') return beginnerSpec;
+    if (normalized == 'advanced') return advancedSpec;
+    return intermediateSpec;
+  }
+}
+
 /// Model representasi data program latihan harian 30 Hari (Sesuai SDD & Implementation Plan)
 class WorkoutDayPlan {
   final int dayNumber;
