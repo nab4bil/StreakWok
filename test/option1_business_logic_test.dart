@@ -15,8 +15,11 @@ void main() {
   });
 
   group('UC-08 Active Day Sync & UC-12 Monthly Quota Reset', () {
-    test('computeEffectiveActiveDay advances from groupCreatedAt and resets daily completion', () async {
-      final accountKey = UserProgressService.getAccountKey(email: 'sync@streakwok.id');
+    test(
+        'computeEffectiveActiveDay advances from groupCreatedAt and resets daily completion',
+        () async {
+      final accountKey =
+          UserProgressService.getAccountKey(email: 'sync@streakwok.id');
       final createdAt = DateTime(2026, 11, 20, 9, 0);
       final initial = UserAccountProgress(
         accountKey: accountKey,
@@ -42,7 +45,8 @@ void main() {
       expect(syncedSameMonth.restoresLeft, 1);
 
       // Next month -> quota resets back to 3 (Free) or 5 (Pro)
-      final syncedNextMonth = syncedSameMonth.syncForDate(DateTime(2026, 12, 1, 8, 0));
+      final syncedNextMonth =
+          syncedSameMonth.syncForDate(DateTime(2026, 12, 1, 8, 0));
       expect(syncedNextMonth.restoresLeft, 3);
       expect(syncedNextMonth.lastQuotaResetMonth, '2026-12');
     });
@@ -60,7 +64,9 @@ void main() {
   });
 
   group('Target Difficulty Multi-Set Workout Progression', () {
-    testWidgets('Beginner difficulty enforces 3 sets, 8 Push-up reps, 45s rest, and 6/6 summary', (tester) async {
+    testWidgets(
+        'Beginner difficulty enforces 3 sets, 8 Push-up reps, 45s rest, and 6/6 summary',
+        (tester) async {
       const plan = WorkoutDayPlan(
         dayNumber: 1,
         isRestDay: false,
@@ -115,7 +121,9 @@ void main() {
       expect(find.text('6/6'), findsOneWidget);
     });
 
-    testWidgets('Dashboard hides difficulty selector and Group Details lets Leader update difficulty', (tester) async {
+    testWidgets(
+        'Dashboard hides difficulty selector and Group Details lets Leader update difficulty',
+        (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: DashboardScreen(
@@ -149,7 +157,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Leader • Day 3 of 30'), findsOneWidget);
-      expect(find.text('Difficulty: Intermediate • 3 sets'), findsOneWidget);
+      expect(find.text('Intermediate • 3 sets'), findsOneWidget);
       await tester.tap(find.byKey(const Key('group_difficulty_btn')));
       await tester.pumpAndSettle();
 
@@ -160,10 +168,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(selectedDiff, 'Advanced');
-      expect(find.text('Difficulty: Advanced • 4 sets'), findsOneWidget);
+      expect(find.text('Advanced • 4 sets'), findsOneWidget);
     });
 
-    testWidgets('Group Details blocks non-leader member from changing difficulty', (tester) async {
+    testWidgets(
+        'Group Details blocks non-leader member from changing difficulty',
+        (tester) async {
       String? selectedDiff;
 
       await tester.pumpWidget(
@@ -182,7 +192,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Difficulty: Beginner • 3 sets'), findsOneWidget);
+      expect(find.text('Beginner • 3 sets'), findsOneWidget);
       await tester.tap(find.byKey(const Key('group_difficulty_btn')));
       await tester.pumpAndSettle();
 
