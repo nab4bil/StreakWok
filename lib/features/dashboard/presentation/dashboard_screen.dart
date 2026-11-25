@@ -19,6 +19,8 @@ class DashboardScreen extends StatefulWidget {
   final VoidCallback? onToggleGroupState;
   final VoidCallback? onAdvanceDay;
   final VoidCallback? onWorkoutCompletedSession;
+  final void Function(WorkoutDayPlan plan, int durationSeconds, int totalReps)?
+      onRecordWorkoutSession;
 
   const DashboardScreen({
     super.key,
@@ -36,6 +38,7 @@ class DashboardScreen extends StatefulWidget {
     this.onToggleGroupState,
     this.onAdvanceDay,
     this.onWorkoutCompletedSession,
+    this.onRecordWorkoutSession,
   });
 
   @override
@@ -122,7 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (widget.isUserCompleted && widget.onAdvanceDay != null) {
       _showWorkoutOptionsDialog();
     } else if (plan != null && plan.isRestDay) {
-      _showRestDayDialog();
+      _showRestDayDialog(plan);
     } else if (plan != null) {
       final isPaused = _pausedDayNumber == plan.dayNumber;
       final initialIndex = isPaused ? (_pausedExerciseIndex ?? 0) : 0;
@@ -151,7 +154,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _pausedDayNumber = null;
         _pausedExerciseIndex = null;
       });
-      if (!widget.isUserCompleted) {
+      if (widget.onRecordWorkoutSession != null) {
+        widget.onRecordWorkoutSession!(
+          plan,
+          result.durationSeconds,
+          result.totalReps,
+        );
+      } else if (!widget.isUserCompleted) {
         widget.onToggleWorkout();
       }
       widget.onWorkoutCompletedSession?.call();
@@ -170,7 +179,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _showRestDayDialog() {
+  void _showRestDayDialog(WorkoutDayPlan plan) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -194,7 +203,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              widget.onToggleWorkout();
+              if (widget.onRecordWorkoutSession != null) {
+                widget.onRecordWorkoutSession!(plan, 0, 0);
+              } else {
+                widget.onToggleWorkout();
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF00D09E),

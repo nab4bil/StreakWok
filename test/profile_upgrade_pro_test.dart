@@ -134,7 +134,7 @@ void main() {
       // Verify bottom sheet closed, callback called, UI updated, and SnackBar displayed
       expect(updatedName, equals('Amba Master'));
       expect(find.text('Amba Master'), findsOneWidget);
-      expect(find.text('Display name updated to "Amba Master"'), findsOneWidget);
+      expect(find.text('Profile name updated'), findsOneWidget);
     });
   });
 }

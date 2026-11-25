@@ -1,9 +1,16 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../dashboard/domain/workout_plan_model.dart';
+import '../../pose_detection/data/camera_image_converter.dart';
+import '../../pose_detection/data/mlkit_pose_detector.dart';
+import '../../pose_detection/domain/exercise_pose_analyzer.dart';
+import '../../pose_detection/domain/mediapipe_pose_detector.dart';
+import '../../pose_detection/presentation/live_pose_skeleton_painter.dart';
 
 enum WorkoutSessionPhase {
   countdown,
@@ -23,11 +30,15 @@ class WorkoutSessionResult {
   final WorkoutSessionExitAction action;
   final int dayNumber;
   final int exerciseIndex;
+  final int durationSeconds;
+  final int totalReps;
 
   const WorkoutSessionResult({
     required this.action,
     required this.dayNumber,
     this.exerciseIndex = 0,
+    this.durationSeconds = 0,
+    this.totalReps = 0,
   });
 }
 
@@ -36,6 +47,7 @@ class WorkoutSessionScreen extends StatefulWidget {
   final VoidCallback? onSessionCompleted;
   final String userName;
   final int initialExerciseIndex;
+  final bool? enableLiveCamera;
 
   const WorkoutSessionScreen({
     super.key,
@@ -43,10 +55,18 @@ class WorkoutSessionScreen extends StatefulWidget {
     this.onSessionCompleted,
     this.userName = 'User',
     this.initialExerciseIndex = 0,
+    this.enableLiveCamera,
   });
 
   @override
   State<WorkoutSessionScreen> createState() => _WorkoutSessionScreenState();
+}
+
+enum _CameraPipelineState {
+  initializing,
+  active,
+  permissionDenied,
+  fallbackSimulation,
 }
 
 class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
@@ -67,6 +87,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   int _targetReps = 12;
   bool _isTimedExercise = false;
   int _timedSecondsRemaining = 30;
+  int _sessionTotalReps = 0;
 
   // Rest Interval State
   int _restSecondsRemaining = 20;
@@ -76,7 +97,28 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   bool _isPaused = false;
   bool _isCancelDialogOpen = false;
 
+  // Real Camera + ML Kit Pose Detection State (UC-09)
+  _CameraPipelineState _cameraState = _CameraPipelineState.initializing;
+  List<CameraDescription> _cameras = const [];
+  int _selectedCameraIndex = 0;
+  CameraController? _cameraController;
+  MlKitPoseDetector? _poseDetector;
+  late final ExercisePoseAnalyzer _poseAnalyzer;
+  bool _isProcessingFrame = false;
+  bool _isDisposed = false;
+  DateTime _lastProcessedFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+  List<LandmarkPoint> _latestLandmarks = const [];
+  Size _latestImageSize = Size.zero;
+  String _poseFeedback = 'Position yourself in camera view';
+  bool _isHoldingPlankForm = false;
+  double? _primaryAngle;
+
   late AnimationController _pulseController;
+
+  CameraDescription? get _activeCamera =>
+      (_cameras.isNotEmpty && _selectedCameraIndex < _cameras.length)
+          ? _cameras[_selectedCameraIndex]
+          : null;
 
   @override
   void initState() {
@@ -92,17 +134,219 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
       _currentExerciseIndex = widget.initialExerciseIndex;
     }
 
+    _poseAnalyzer = ExercisePoseAnalyzer(exerciseName: _currentExerciseName);
+    _initCamera(fromInitState: true);
     _startInitialCountdown();
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _workoutTimer?.cancel();
     _restTimer?.cancel();
     _pulseController.dispose();
+    unawaited(_disposeCameraPipeline());
     super.dispose();
+  }
+
+  Future<void> _initCamera({int? cameraIndexOverride, bool fromInitState = false}) async {
+    if (_isDisposed) return;
+
+    final useLiveCamera =
+        widget.enableLiveCamera ?? (Platform.isAndroid || Platform.isIOS);
+    if (!useLiveCamera) {
+      if (fromInitState) {
+        _cameraState = _CameraPipelineState.fallbackSimulation;
+      } else if (mounted) {
+        setState(() {
+          _cameraState = _CameraPipelineState.fallbackSimulation;
+        });
+      }
+      return;
+    }
+
+    if (fromInitState) {
+      _cameraState = _CameraPipelineState.initializing;
+    } else if (mounted) {
+      setState(() {
+        _cameraState = _CameraPipelineState.initializing;
+      });
+    }
+
+    try {
+      final cameras = _cameras.isNotEmpty ? _cameras : await availableCameras();
+      if (_isDisposed || !mounted) return;
+
+      if (cameras.isEmpty) {
+        setState(() {
+          _cameraState = _CameraPipelineState.fallbackSimulation;
+        });
+        return;
+      }
+
+      _cameras = cameras;
+      if (cameraIndexOverride != null &&
+          cameraIndexOverride >= 0 &&
+          cameraIndexOverride < cameras.length) {
+        _selectedCameraIndex = cameraIndexOverride;
+      } else {
+        final frontIdx = cameras.indexWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+        );
+        _selectedCameraIndex = frontIdx >= 0 ? frontIdx : 0;
+      }
+
+      await _disposeCameraOnly();
+
+      final controller = CameraController(
+        _cameras[_selectedCameraIndex],
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup:
+            Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+      );
+
+      await controller.initialize();
+      if (_isDisposed || !mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      _poseDetector ??= MlKitPoseDetector();
+      await _poseDetector!.initialize();
+
+      await controller.startImageStream(_onCameraFrame);
+      if (_isDisposed || !mounted) {
+        await controller.stopImageStream();
+        await controller.dispose();
+        return;
+      }
+
+      setState(() {
+        _cameraController = controller;
+        _cameraState = _CameraPipelineState.active;
+      });
+    } on CameraException catch (e) {
+      if (_isDisposed || !mounted) return;
+      final code = e.code.toLowerCase();
+      if (code.contains('accessdenied') || code.contains('permission')) {
+        setState(() {
+          _cameraState = _CameraPipelineState.permissionDenied;
+        });
+      } else {
+        setState(() {
+          _cameraState = _CameraPipelineState.fallbackSimulation;
+        });
+      }
+    } on MissingPluginException {
+      if (_isDisposed || !mounted) return;
+      setState(() {
+        _cameraState = _CameraPipelineState.fallbackSimulation;
+      });
+    } catch (_) {
+      if (_isDisposed || !mounted) return;
+      setState(() {
+        _cameraState = _CameraPipelineState.fallbackSimulation;
+      });
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (_cameras.length < 2 || _cameraState == _CameraPipelineState.initializing) {
+      return;
+    }
+    final nextIndex = (_selectedCameraIndex + 1) % _cameras.length;
+    _latestLandmarks = const [];
+    await _initCamera(cameraIndexOverride: nextIndex);
+  }
+
+  Future<void> _disposeCameraOnly() async {
+    final controller = _cameraController;
+    _cameraController = null;
+    if (controller != null) {
+      try {
+        if (controller.value.isStreamingImages) {
+          await controller.stopImageStream();
+        }
+      } catch (_) {}
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _disposeCameraPipeline() async {
+    await _disposeCameraOnly();
+    final detector = _poseDetector;
+    _poseDetector = null;
+    if (detector != null) {
+      try {
+        await detector.dispose();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _onCameraFrame(CameraImage image) async {
+    if (_isDisposed ||
+        !mounted ||
+        _phase != WorkoutSessionPhase.active ||
+        _isPaused ||
+        _isCancelDialogOpen ||
+        _isProcessingFrame) {
+      return;
+    }
+
+    final now = DateTime.now();
+    if (now.difference(_lastProcessedFrameAt).inMilliseconds < 65) {
+      return;
+    }
+
+    final activeCamera = _activeCamera;
+    final controller = _cameraController;
+    final detector = _poseDetector;
+    if (activeCamera == null || controller == null || detector == null) return;
+
+    _isProcessingFrame = true;
+    _lastProcessedFrameAt = now;
+
+    try {
+      final converted = CameraImageConverter.convert(
+        image: image,
+        camera: activeCamera,
+        deviceOrientation: controller.value.deviceOrientation,
+      );
+      if (converted == null) return;
+
+      final poseResult = await detector.detectFromInputImage(converted.inputImage);
+      if (_isDisposed ||
+          !mounted ||
+          poseResult == null ||
+          _phase != WorkoutSessionPhase.active ||
+          _isPaused) {
+        return;
+      }
+
+      final analysis = _poseAnalyzer.analyze(poseResult, now: now);
+
+      setState(() {
+        _latestLandmarks = poseResult.landmarks;
+        _latestImageSize = converted.uprightImageSize;
+        _poseFeedback = analysis.feedbackMessage;
+        _isHoldingPlankForm = analysis.isHoldingForm;
+        _primaryAngle = analysis.primaryAngle;
+      });
+
+      if (analysis.repIncremented && !_isTimedExercise) {
+        HapticFeedback.lightImpact();
+        _incrementRep();
+      }
+    } catch (_) {
+      // Skip malformed frames safely without interrupting the stream.
+    } finally {
+      _isProcessingFrame = false;
+    }
   }
 
   @override
@@ -111,6 +355,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
+      if (_cameraState == _CameraPipelineState.initializing) {
+        return;
+      }
       if (!_isPaused &&
           !_isCancelDialogOpen &&
           (_phase == WorkoutSessionPhase.active ||
@@ -119,8 +366,25 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
         setState(() {
           _isPaused = true;
         });
+        unawaited(_pauseCameraPreviewSafely());
       }
     }
+  }
+
+  Future<void> _pauseCameraPreviewSafely() async {
+    try {
+      if (_cameraController != null && _cameraController!.value.isInitialized) {
+        await _cameraController!.pausePreview();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _resumeCameraPreviewSafely() async {
+    try {
+      if (_cameraController != null && _cameraController!.value.isInitialized) {
+        await _cameraController!.resumePreview();
+      }
+    } catch (_) {}
   }
 
   List<String> get _exercises {
@@ -146,6 +410,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
       _targetReps = 12;
     }
     _currentReps = 0;
+    _latestLandmarks = const [];
+    _isHoldingPlankForm = false;
+    _primaryAngle = null;
+    _poseFeedback = 'Position yourself in camera view';
+    _poseAnalyzer.resetForExercise(_currentExerciseName);
   }
 
   void _startInitialCountdown() {
@@ -156,12 +425,18 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_cameraState == _CameraPipelineState.permissionDenied) {
+        return;
+      }
       if (!_isPaused && !_isCancelDialogOpen) {
         if (_countdownSeconds > 1) {
           setState(() {
             _countdownSeconds--;
           });
         } else {
+          if (_cameraState == _CameraPipelineState.initializing) {
+            return;
+          }
           timer.cancel();
           _startWorkout();
         }
@@ -182,10 +457,16 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   void _startGlobalTimer() {
     _workoutTimer?.cancel();
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_cameraState == _CameraPipelineState.permissionDenied) {
+        return;
+      }
       if (!_isPaused && !_isCancelDialogOpen) {
         setState(() {
           _totalElapsedSeconds++;
-          if (_isTimedExercise && _timedSecondsRemaining > 0) {
+          final shouldTickPlank = _isTimedExercise &&
+              _timedSecondsRemaining > 0 &&
+              (_cameraState != _CameraPipelineState.active || _isHoldingPlankForm);
+          if (shouldTickPlank) {
             _timedSecondsRemaining--;
             _currentReps = 30 - _timedSecondsRemaining;
             if (_timedSecondsRemaining == 0) {
@@ -202,6 +483,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     setState(() {
       _isPaused = !_isPaused;
     });
+    if (_isPaused) {
+      unawaited(_pauseCameraPreviewSafely());
+    } else {
+      unawaited(_resumeCameraPreviewSafely());
+    }
   }
 
   // UC-10 & UC-11: Exit Options Dialog (Keep Exercising / Do It Later / Quit Workout)
@@ -308,6 +594,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
       _countdownTimer?.cancel();
       _workoutTimer?.cancel();
       _restTimer?.cancel();
+      await _disposeCameraPipeline();
+      if (!mounted) return;
       Navigator.of(context).pop(
         WorkoutSessionResult(
           action: WorkoutSessionExitAction.doItLater,
@@ -319,6 +607,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
       _countdownTimer?.cancel();
       _workoutTimer?.cancel();
       _restTimer?.cancel();
+      await _disposeCameraPipeline();
+      if (!mounted) return;
       Navigator.of(context).pop(
         WorkoutSessionResult(
           action: WorkoutSessionExitAction.quit,
@@ -329,9 +619,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     }
   }
 
-  void _showCancelDialog() => _showExitOptionsDialog();
-
-  // Increment rep (simulates MediaPipe pose detection trigger)
+  // Increment rep (called automatically by ML Kit pose analyzer or manual fallback)
   void _incrementRep() {
     if (_isPaused || _isCancelDialogOpen || _phase != WorkoutSessionPhase.active) return;
 
@@ -356,7 +644,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   }
 
   void _onCompleteCurrentExercise() {
-
+    if (!_isTimedExercise) {
+      _sessionTotalReps += _currentReps;
+    }
     if (_currentExerciseIndex < _exercises.length - 1) {
       setState(() {
         _phase = WorkoutSessionPhase.rest;
@@ -368,6 +658,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
         _phase = WorkoutSessionPhase.summary;
       });
       _workoutTimer?.cancel();
+      unawaited(_disposeCameraPipeline());
     }
   }
 
@@ -433,6 +724,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   }
 
   Widget _buildBodyForCurrentPhase() {
+    if (_cameraState == _CameraPipelineState.permissionDenied) {
+      return _buildCameraPermissionDeniedView();
+    }
     switch (_phase) {
       case WorkoutSessionPhase.countdown:
         return _buildCountdownPhase();
@@ -443,6 +737,144 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
       case WorkoutSessionPhase.summary:
         return _buildSummaryPhase();
     }
+  }
+
+  // UC-09 Exception Flow: Camera denied by OS
+  Widget _buildCameraPermissionDeniedView() {
+    return Center(
+      key: const ValueKey('camera_permission_denied_view'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.border, width: 1.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFEF2F2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.videocam_off_rounded,
+                  color: Color(0xFFEF4444),
+                  size: 34,
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Akses Kamera Diperlukan',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Izinkan akses kamera untuk memulai latihan.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textMuted,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  key: const Key('retry_camera_permission_btn'),
+                  onPressed: () => _initCamera(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'Izinkan Akses Kamera',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () async {
+                  _countdownTimer?.cancel();
+                  _workoutTimer?.cancel();
+                  _restTimer?.cancel();
+                  await _disposeCameraPipeline();
+                  if (!mounted) return;
+                  Navigator.of(context).pop(
+                    WorkoutSessionResult(
+                      action: WorkoutSessionExitAction.quit,
+                      dayNumber: widget.dayPlan.dayNumber,
+                      exerciseIndex: 0,
+                    ),
+                  );
+                },
+                child: const Text(
+                  'Kembali',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveCameraFeed() {
+    final controller = _cameraController!;
+    final rawPreview = controller.value.previewSize ?? const Size(640, 480);
+    final orientation = controller.value.deviceOrientation;
+    final isLandscape = orientation == DeviceOrientation.landscapeLeft ||
+        orientation == DeviceOrientation.landscapeRight;
+    final uprightPreview = isLandscape
+        ? rawPreview
+        : Size(rawPreview.height, rawPreview.width);
+
+    final isFrontCamera =
+        _activeCamera?.lensDirection == CameraLensDirection.front;
+
+    return Positioned.fill(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(
+          width: uprightPreview.width,
+          height: uprightPreview.height,
+          child: CameraPreview(
+            controller,
+            child: CustomPaint(
+              painter: LivePoseSkeletonPainter(
+                landmarks: _latestLandmarks,
+                imageSize: _latestImageSize == Size.zero
+                    ? uprightPreview
+                    : _latestImageSize,
+                mirrorHorizontally: isFrontCamera,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // 1. COUNTDOWN PHASE (Light Theme sesuai SDD with Animated Preview)
@@ -575,192 +1007,258 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
               ),
             ),
 
-            // SIMULATED CAMERA & POSE TRACKING VIEWPORT (Clean Canvas Card)
+            // LIVE CAMERA / POSE TRACKING VIEWPORT (Clean Canvas Card)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
                 child: Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: _cameraState == _CameraPipelineState.active
+                        ? const Color(0xFF0F172A)
+                        : Colors.white,
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
                       color: AppColors.border,
                       width: 1.5,
                     ),
                   ),
-                  child: Stack(
-                    children: [
-                      // Solid Watermark Icon Background
-                      Center(
-                        child: Icon(
-                          _getExerciseIcon(_currentExerciseName),
-                          size: 160,
-                          color: const Color(0xFFF4F7F5),
-                        ),
-                      ),
-
-                      // Animated Pose Tracking Skeletal Nodes (Solid Light Theme Overlay)
-                      AnimatedBuilder(
-                        animation: _pulseController,
-                        builder: (context, child) {
-                          return CustomPaint(
-                            size: Size.infinite,
-                            painter: _PoseSkeletonPainter(
-                              pulseFactor: _pulseController.value,
-                              exerciseName: _currentExerciseName,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22.5),
+                    child: Stack(
+                      children: [
+                        if (_cameraState == _CameraPipelineState.active &&
+                            _cameraController != null &&
+                            _cameraController!.value.isInitialized)
+                          _buildLiveCameraFeed()
+                        else ...[
+                          // Fallback Simulation Canvas (headless tests / no camera)
+                          Center(
+                            child: Icon(
+                              _getExerciseIcon(_currentExerciseName),
+                              size: 160,
+                              color: const Color(0xFFF4F7F5),
                             ),
-                          );
-                        },
-                      ),
-
-                      // AI Tracker Status Pill (Top Left inside viewport)
-                      Positioned(
-                        top: 14,
-                        left: 14,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE8F9F3),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFBCEBDC)),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          AnimatedBuilder(
+                            animation: _pulseController,
+                            builder: (context, child) {
+                              return CustomPaint(
+                                size: Size.infinite,
+                                painter: _PoseSkeletonPainter(
+                                  pulseFactor: _pulseController.value,
+                                  exerciseName: _currentExerciseName,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+
+                        // AI Tracker Status Pill (Top Left inside viewport)
+                        Positioned(
+                          top: 14,
+                          left: 14,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AppColors.primary,
-                                  shape: BoxShape.circle,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F9F3),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: const Color(0xFFBCEBDC)),
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              const Text(
-                                'AI Pose Tracker Active',
-                                style: TextStyle(
-                                  color: Color(0xFF007A58),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Stopwatch Duration (Top Right inside viewport)
-                      Positioned(
-                        top: 14,
-                        right: 14,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.timer_outlined, color: AppColors.textMain, size: 14),
-                              const SizedBox(width: 4),
-                              Text(
-                                _formatDuration(_totalElapsedSeconds),
-                                style: const TextStyle(
-                                  color: AppColors.textMain,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  fontFeatures: [FontFeature.tabularFigures()],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Center Exercise Name & Big Rep Counter Card
-                      Positioned(
-                        bottom: 16,
-                        left: 16,
-                        right: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFAFCFB),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _currentExerciseName,
-                                style: const TextStyle(
-                                  color: AppColors.textMain,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              if (_isTimedExercise)
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      '${_timedSecondsRemaining}s',
-                                      style: const TextStyle(
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(
                                         color: AppColors.primary,
-                                        fontSize: 36,
-                                        fontWeight: FontWeight.w900,
+                                        shape: BoxShape.circle,
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     const Text(
-                                      '/ 30s remaining',
+                                      'AI Pose Tracker Active',
                                       style: TextStyle(
-                                        color: AppColors.textMuted,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              else
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      '$_currentReps',
-                                      style: const TextStyle(
-                                        color: AppColors.primary,
-                                        fontSize: 40,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '/ $_targetReps Reps',
-                                      style: const TextStyle(
-                                        color: AppColors.textMuted,
-                                        fontSize: 16,
+                                        color: Color(0xFF007A58),
+                                        fontSize: 11,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ],
                                 ),
+                              ),
+                              if (_cameraState == _CameraPipelineState.active) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  constraints: const BoxConstraints(maxWidth: 210),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: Text(
+                                    _primaryAngle != null
+                                        ? '$_poseFeedback (${_primaryAngle!.round()}°)'
+                                        : _poseFeedback,
+                                    style: TextStyle(
+                                      color: _isHoldingPlankForm
+                                          ? const Color(0xFF007A58)
+                                          : AppColors.textMain,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
-                      ),
-                    ],
+
+                        // Stopwatch Duration & Camera Switch (Top Right inside viewport)
+                        Positioned(
+                          top: 14,
+                          right: 14,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_cameraState == _CameraPipelineState.active &&
+                                  _cameras.length > 1) ...[
+                                GestureDetector(
+                                  key: const Key('switch_camera_btn'),
+                                  onTap: _switchCamera,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(7),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.92),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: AppColors.border),
+                                    ),
+                                    child: const Icon(
+                                      Icons.cameraswitch_rounded,
+                                      color: AppColors.textMain,
+                                      size: 16,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.92),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.timer_outlined, color: AppColors.textMain, size: 14),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _formatDuration(_totalElapsedSeconds),
+                                      style: const TextStyle(
+                                        color: AppColors.textMain,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        fontFeatures: [FontFeature.tabularFigures()],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Center Exercise Name & Big Rep Counter Card
+                        Positioned(
+                          bottom: 16,
+                          left: 16,
+                          right: 16,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: _cameraState == _CameraPipelineState.active
+                                  ? Colors.white.withValues(alpha: 0.92)
+                                  : const Color(0xFFFAFCFB),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _currentExerciseName,
+                                  style: const TextStyle(
+                                    color: AppColors.textMain,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                if (_isTimedExercise)
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '${_timedSecondsRemaining}s',
+                                        style: const TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 36,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        '/ 30s remaining',
+                                        style: TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '$_currentReps',
+                                        style: const TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 40,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '/ $_targetReps Reps',
+                                        style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
 
-            // INTERACTIVE ACTION BUTTON (Solid Mint-Emerald matching app buttons)
+            // INTERACTIVE ACTION / FALLBACK BUTTON
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
               child: SizedBox(
@@ -773,7 +1271,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                     size: 20,
                   ),
                   label: Text(
-                    _isTimedExercise ? 'Complete Plank' : '+1 Rep (Tap / Detected)',
+                    _isTimedExercise
+                        ? 'Complete Plank'
+                        : (_cameraState == _CameraPipelineState.active
+                            ? 'Manual +1 Rep'
+                            : '+1 Rep (Tap / Detected)'),
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                   ),
                   style: ElevatedButton.styleFrom(
@@ -1103,6 +1605,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                     WorkoutSessionResult(
                       action: WorkoutSessionExitAction.completed,
                       dayNumber: widget.dayPlan.dayNumber,
+                      durationSeconds: _totalElapsedSeconds,
+                      totalReps: _sessionTotalReps,
                     ),
                   );
                 },

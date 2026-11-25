@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/user_progress_service.dart';
+import '../dashboard/domain/workout_plan_model.dart';
 import '../dashboard/presentation/dashboard_screen.dart';
 import '../group/presentation/group_screen.dart';
 import '../history/presentation/history_screen.dart';
@@ -97,6 +98,33 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final updated = _userProgress.copyWith(
       isUserCompleted: newCompleted,
       streakDays: newStreak,
+    );
+    await _updateUserProgress(updated);
+  }
+
+  Future<void> _recordCompletedWorkoutSession(
+    WorkoutDayPlan plan,
+    int durationSeconds,
+    int totalReps,
+  ) async {
+    final newStreak = _userProgress.isUserCompleted
+        ? _userProgress.streakDays
+        : _userProgress.streakDays + 1;
+
+    final entry = WorkoutHistoryEntry(
+      dayNumber: plan.dayNumber,
+      category: plan.category,
+      exerciseNames: plan.exerciseNames,
+      completedAt: DateTime.now(),
+      durationSeconds: durationSeconds,
+      totalReps: totalReps,
+      isRestDay: plan.isRestDay,
+    );
+
+    final updated = _userProgress.copyWith(
+      isUserCompleted: true,
+      streakDays: newStreak,
+      workoutHistory: [..._userProgress.workoutHistory, entry],
     );
     await _updateUserProgress(updated);
   }
@@ -286,6 +314,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     height: 46,
                     child: ElevatedButton(
                       onPressed: () async {
+                        final remainingCooldown =
+                            _userProgress.remainingCooldownDays();
+                        if (remainingCooldown > 0) {
+                          setModalState(
+                            () => errorText =
+                                'Anda belum bisa bergabung grup selama $remainingCooldown hari',
+                          );
+                          return;
+                        }
+
                         final inputCode = codeController.text.trim().toUpperCase();
                         if (inputCode.isEmpty) {
                           setModalState(() => errorText = 'Invite code cannot be empty');
@@ -298,7 +336,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         }
 
                         if (inputCode == 'WAIT07') {
-                          setModalState(() => errorText = 'You are on a 7-day cooldown penalty');
+                          setModalState(
+                            () => errorText =
+                                'Anda belum bisa bergabung grup selama 7 hari',
+                          );
                           return;
                         }
 
@@ -680,11 +721,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  // Handler: Keluar dari Grup
+  // Handler: Keluar dari Grup (UC-06: menetapkan cooldown 7 hari di database lokal)
   void _handleLeaveGroup() async {
+    final cooldownEnd = DateTime.now().add(const Duration(days: 7));
     final updated = _userProgress.copyWith(
       hasGroup: false,
       isLeader: false,
+      cooldownUntil: cooldownEnd,
     );
     await _updateUserProgress(updated);
 
@@ -698,12 +741,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _handleJoinGroupFromScreen(String code) async {
+    if (_userProgress.isOnCooldown()) return;
     final updated = _userProgress.copyWith(
       hasGroup: true,
       isLeader: false,
       groupName: 'gerup ketat',
       inviteCode: code,
       memberCount: 3,
+      clearCooldown: true,
     );
     await _updateUserProgress(updated);
     setState(() {
@@ -780,6 +825,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onCreateGroupTap: () => _showCreateGroupModal(context),
         onToggleGroupState: _onToggleGroupDemo,
         onWorkoutCompletedSession: _onWorkoutCompletedSession,
+        onRecordWorkoutSession: _recordCompletedWorkoutSession,
       ),
       GroupScreen(
         userName: _activeUserName,
@@ -794,6 +840,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         maxMembers: _userProgress.maxMembers,
         isPro: _userProgress.isPro,
         initialRestoresLeft: _userProgress.restoresLeft,
+        cooldownUntil: _userProgress.cooldownUntil,
+        workoutHistory: _userProgress.workoutHistory,
         onUpgradePro: _handleUpgradePro,
         onRestoreQuotaChanged: _handleRestoreQuotaChanged,
         onBackPressed: () => _navigateToTab(0),
@@ -810,6 +858,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       ),
       HistoryScreen(
         onBackPressed: () => _navigateToTab(0),
+        historyEntries: _userProgress.workoutHistory,
+        currentStreakDays: _userProgress.streakDays,
       ),
       ProfileScreen(
         userName: _activeUserName,

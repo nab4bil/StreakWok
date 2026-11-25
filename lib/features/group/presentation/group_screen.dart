@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/user_progress_service.dart';
 import 'group_history_screen.dart';
 
 class GroupScreen extends StatefulWidget {
@@ -24,6 +25,8 @@ class GroupScreen extends StatefulWidget {
   final int? initialRestoresLeft;
   final bool? isPastDeadline;
   final bool isPro;
+  final DateTime? cooldownUntil;
+  final List<WorkoutHistoryEntry> workoutHistory;
   final VoidCallback? onUpgradePro;
   final ValueChanged<int>? onRestoreQuotaChanged;
 
@@ -42,6 +45,8 @@ class GroupScreen extends StatefulWidget {
     this.initialRestoresLeft,
     this.isPastDeadline,
     this.isPro = false,
+    this.cooldownUntil,
+    this.workoutHistory = const [],
     this.onUpgradePro,
     this.onRestoreQuotaChanged,
     this.onBackPressed,
@@ -450,6 +455,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
           isLeader: widget.isLeader,
           userName: widget.userName,
           isUserCompleted: widget.isUserCompleted,
+          historyEntries: widget.workoutHistory,
+          memberNames: _members.map((m) => m.name).toList(),
         ),
       ),
     );
@@ -962,7 +969,26 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
     );
   }
 
+  int get _remainingCooldownDays {
+    final until = widget.cooldownUntil;
+    final now = DateTime.now();
+    if (until == null || !until.isAfter(now)) return 0;
+    final diffSeconds = until.difference(now).inSeconds;
+    if (diffSeconds <= 0) return 0;
+    return (diffSeconds / Duration.secondsPerDay).ceil().clamp(1, 7);
+  }
+
   void _handleJoinSubmit() {
+    final remainingCooldown = _remainingCooldownDays;
+    if (remainingCooldown > 0) {
+      setState(() {
+        _isJoinError = true;
+        _joinFeedback =
+            'Anda belum bisa bergabung grup selama $remainingCooldown hari';
+      });
+      return;
+    }
+
     final code = _joinCodeController.text.trim().toUpperCase();
     if (code == 'FULL99') {
       setState(() {
@@ -974,7 +1000,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
     if (code == 'WAIT07') {
       setState(() {
         _isJoinError = true;
-        _joinFeedback = 'You are currently on a 7-day cooldown period.';
+        _joinFeedback = 'Anda belum bisa bergabung grup selama 7 hari';
       });
       return;
     }
@@ -1070,6 +1096,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
             Expanded(
               child: widget.hasGroup
                   ? ListView(
+                      key: const ValueKey('group_active_list'),
                       padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
                       children: [
                         // CARD 1: GROUP HERO & STREAK BANNER (group-hero-card)
@@ -1100,7 +1127,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        widget.isLeader ? 'Started Today' : 'Started Oct 4, 2026',
+                                        widget.isLeader
+                                            ? 'Leader • Day ${widget.currentActiveDay} of 30'
+                                            : 'Member • Day ${widget.currentActiveDay} of 30',
                                         style: const TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w500,
@@ -1351,18 +1380,10 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                               ),
                               const SizedBox(height: 10),
 
-                              // Days grid row (S, M, T, W, T, F, S)
+                              // Dynamic Days grid row (S, M, T, W, T, F, S)
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  _DayCircle(dayName: 'S', dateNum: '18', isActive: widget.isLeader ? isDone : true),
-                                  const _DayCircle(dayName: 'M', dateNum: '19'),
-                                  const _DayCircle(dayName: 'T', dateNum: '20'),
-                                  const _DayCircle(dayName: 'W', dateNum: '21'),
-                                  const _DayCircle(dayName: 'T', dateNum: '22'),
-                                  const _DayCircle(dayName: 'F', dateNum: '23'),
-                                  const _DayCircle(dayName: 'S', dateNum: '24'),
-                                ],
+                                children: _buildThisWeekCircles(isDone),
                               ),
 
                               const SizedBox(height: 10),
@@ -1512,6 +1533,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                     )
                   // TAMPILAN KETIKA BELUM ADA GRUP (Identik 1:1 dengan join_create_group.html)
                   : ListView(
+                      key: const ValueKey('group_empty_list'),
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                       children: [
                         // Hero Header
@@ -1635,6 +1657,42 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                if (_remainingCooldownDays > 0) ...[
+                                  Container(
+                                    key: const Key('group_cooldown_banner'),
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    margin: const EdgeInsets.only(bottom: 14),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFEF2F2),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: const Color(0xFFFCA5A5),
+                                        width: 1.2,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.timer_off_outlined,
+                                          size: 18,
+                                          color: Color(0xFFDC2626),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            'Anda belum bisa bergabung grup selama $_remainingCooldownDays hari',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFFDC2626),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                                 const Text(
                                   'Group Invite Code',
                                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
@@ -2000,6 +2058,29 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         ),
       ),
     );
+  }
+
+  List<Widget> _buildThisWeekCircles(bool isDoneToday) {
+    const dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    final now = DateTime.now();
+    final sunday = now.subtract(Duration(days: now.weekday % 7));
+    return List.generate(7, (index) {
+      final date = sunday.add(Duration(days: index));
+      final isToday = date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+      final hasHistoryForDate = widget.workoutHistory.any(
+        (entry) =>
+            entry.completedAt.year == date.year &&
+            entry.completedAt.month == date.month &&
+            entry.completedAt.day == date.day,
+      );
+      return _DayCircle(
+        dayName: dayLetters[index],
+        dateNum: '${date.day}',
+        isActive: hasHistoryForDate || (isToday && isDoneToday),
+      );
+    });
   }
 
   String _getInitials(String name) {

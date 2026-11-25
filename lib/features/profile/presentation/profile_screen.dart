@@ -141,11 +141,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Profile Name with Edit Button
+                  // Profile Name with compact top-right Edit Pencil Icon (no circle)
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const SizedBox(width: 22),
                       Flexible(
                         child: Text(
                           _currentName,
@@ -158,22 +160,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 8),
                       GestureDetector(
                         key: const Key('edit_profile_name_btn'),
                         onTap: () => _showEditProfileNameBottomSheet(context),
                         behavior: HitTestBehavior.opaque,
-                        child: Container(
-                          padding: const EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF4F7F5),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1),
-                          ),
-                          child: const Icon(
-                            Icons.edit_outlined,
-                            size: 13,
-                            color: Color(0xFF6B7280),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 2, right: 6, bottom: 8),
+                          child: Transform.translate(
+                            offset: const Offset(0, -1),
+                            child: const Icon(
+                              Icons.edit_outlined,
+                              size: 14,
+                              color: Color(0xFF6B7280),
+                            ),
                           ),
                         ),
                       ),
@@ -636,7 +635,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     widget.onNameChanged?.call(newName);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Display name updated to "$newName"'),
+        content: const Text('Profile name updated'),
         backgroundColor: const Color(0xFF00D09E),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
