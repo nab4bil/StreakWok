@@ -199,7 +199,7 @@ void main() {
       expect(selectedDiff, isNull);
       expect(find.text('Workout Difficulty'), findsNothing);
       expect(
-        find.text('Only the Group Leader can change target difficulty.'),
+        find.text('Only your group leader can change the difficulty.'),
         findsOneWidget,
       );
     });
