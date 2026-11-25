@@ -36,6 +36,28 @@ class PoseAnalysisResult {
   });
 }
 
+class _SideBody {
+  final LandmarkPoint shoulder;
+  final LandmarkPoint? elbow;
+  final LandmarkPoint? wrist;
+  final LandmarkPoint hip;
+  final LandmarkPoint knee;
+  final LandmarkPoint ankle;
+  final double minVisibility;
+  final double confidence;
+
+  const _SideBody({
+    required this.shoulder,
+    this.elbow,
+    this.wrist,
+    required this.hip,
+    required this.knee,
+    required this.ankle,
+    required this.minVisibility,
+    required this.confidence,
+  });
+}
+
 /// Evaluates 33-point BlazePose/MediaPipe skeletal landmarks for each exercise
 /// defined in the StreakWok program and tracks clean, debounced repetitions.
 class ExercisePoseAnalyzer {
@@ -58,6 +80,8 @@ class ExercisePoseAnalyzer {
   ExerciseType _exerciseType;
   ExerciseStage _stage = ExerciseStage.waitingForPose;
   double? _smoothedAngle;
+  double? _baselineHipY;
+  double? _baselineBodyHeight;
   DateTime? _lastRepAt;
   int _missingPoseFrames = 0;
 
@@ -90,11 +114,45 @@ class ExercisePoseAnalyzer {
     return ExerciseType.pushUp;
   }
 
+  /// Camera framing hint shared between analyzer prompts and workout UI overlays.
+  static String cameraGuideFor(String exerciseName) {
+    switch (parseExerciseType(exerciseName)) {
+      case ExerciseType.squat:
+      case ExerciseType.lunges:
+        return 'Side / 45° view • Full body';
+      case ExerciseType.pushUp:
+      case ExerciseType.plank:
+      case ExerciseType.sitUp:
+      case ExerciseType.legRaises:
+        return 'Side view • Full body';
+    }
+  }
+
+  /// Initial guidance shown before pose landmarks stabilize in the camera viewport.
+  static String initialPromptFor(String exerciseName) {
+    switch (parseExerciseType(exerciseName)) {
+      case ExerciseType.pushUp:
+        return 'Show full body from side (hands to ankles)';
+      case ExerciseType.squat:
+        return 'Step back: shoulders to ankles in view';
+      case ExerciseType.sitUp:
+        return 'Show full body side view on mat';
+      case ExerciseType.plank:
+        return 'Show full body plank from side (hands to ankles)';
+      case ExerciseType.lunges:
+        return 'Step back: full body in side / 45° view';
+      case ExerciseType.legRaises:
+        return 'Lie flat sideways: shoulders to ankles in frame';
+    }
+  }
+
   /// Resets tracking state cleanly when advancing to the next exercise.
   void resetForExercise(String exerciseName) {
     _exerciseType = parseExerciseType(exerciseName);
     _stage = ExerciseStage.waitingForPose;
     _smoothedAngle = null;
+    _baselineHipY = null;
+    _baselineBodyHeight = null;
     _lastRepAt = null;
     _missingPoseFrames = 0;
   }
@@ -133,90 +191,161 @@ class ExercisePoseAnalyzer {
   }
 
   PoseAnalysisResult _analyzePushUp(Map<int, LandmarkPoint> byId, DateTime now) {
-    final triplet = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftShoulderId, leftElbowId, leftWristId),
-      rightIds: (rightShoulderId, rightElbowId, rightWristId),
-    );
-    if (triplet == null) {
-      return _missingPose('Show arms & shoulders in camera');
+    final side = _bestVisibleSide(byId, requireArm: true);
+    if (side == null) {
+      return _missingPose('Show full body from side (hands to ankles)');
     }
 
-    // Soft body alignment guard when lower body is visible so casual standing gestures don't trigger.
-    final hipGuard = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftShoulderId, leftHipId, leftKneeId),
-      rightIds: (rightShoulderId, rightHipId, rightKneeId),
+    final wrist = side.wrist!;
+    final elbow = side.elbow!;
+    final upperArmLen = _distance(side.shoulder, elbow);
+    final isHorizontal = _isHorizontalPosture(
+      side.shoulder,
+      side.ankle,
+      minHorizontalRatio: 0.75,
     );
-    if (hipGuard != null && calculateAngle(hipGuard.$1, hipGuard.$2, hipGuard.$3) < 120.0) {
+    // Allow shoulder to descend near floor/wrist height at bottom depth, while blocking
+    // hands raised noticeably above shoulders (e.g., lying face-up air punches).
+    final handsAboveShoulders = wrist.y < side.shoulder.y - (upperArmLen * 0.20);
+    if (!isHorizontal || handsAboveShoulders) {
       return PoseAnalysisResult(
         stage: _stage,
-        feedbackMessage: 'Keep your torso straight',
-        confidence: _tripletConfidence(triplet),
+        feedbackMessage: 'Get into full push-up plank position',
+        confidence: side.confidence,
       );
     }
 
-    final elbowAngle = _smooth(calculateAngle(triplet.$1, triplet.$2, triplet.$3));
+    final kneeAngle = calculateAngle(side.hip, side.knee, side.ankle);
+    final shoulderLift = wrist.y - side.shoulder.y;
+    final armSpan = _distance(side.shoulder, wrist);
+    final kneesOnFloorAtTop =
+        shoulderLift >= armSpan * 0.35 &&
+        _hasKneeOnFloor(side, wrist, shoulderLift);
+    if (kneeAngle < 150.0 || kneesOnFloorAtTop) {
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Straighten legs onto toes (no knee push-ups)',
+        confidence: side.confidence,
+      );
+    }
+
+    final bodyAngle = calculateAngle(side.shoulder, side.hip, side.ankle);
+    if (bodyAngle < 140.0) {
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Keep torso & hips straight',
+        confidence: side.confidence,
+      );
+    }
+
+    final elbowAngle = _smooth(calculateAngle(side.shoulder, elbow, wrist));
     return _evaluateCycleDownUp(
       angle: elbowAngle,
       upThreshold: 150.0,
-      downThreshold: 100.0,
+      downThreshold: 108.0,
       readyPrompt: 'Lower chest down',
       downPrompt: 'Good depth • Push up!',
       repDonePrompt: 'Push-up counted!',
-      confidence: _tripletConfidence(triplet),
+      confidence: side.confidence,
       now: now,
     );
   }
 
   PoseAnalysisResult _analyzeSquat(Map<int, LandmarkPoint> byId, DateTime now) {
-    final left = _getTriplet(byId, leftHipId, leftKneeId, leftAnkleId);
-    final right = _getTriplet(byId, rightHipId, rightKneeId, rightAnkleId);
-
-    double? kneeAngle;
-    double confidence = 0.0;
-
-    if (left != null && right != null) {
-      kneeAngle = (calculateAngle(left.$1, left.$2, left.$3) +
-              calculateAngle(right.$1, right.$2, right.$3)) /
-          2.0;
-      confidence = (_tripletConfidence(left) + _tripletConfidence(right)) / 2.0;
-    } else {
-      final best = left ?? right;
-      if (best == null) {
-        return _missingPose('Step back so hips, knees & ankles are visible');
-      }
-      kneeAngle = calculateAngle(best.$1, best.$2, best.$3);
-      confidence = _tripletConfidence(best);
+    final side = _bestVisibleSide(byId);
+    if (side == null) {
+      return _missingPose('Step back: shoulders to ankles must be visible');
     }
 
-    final smoothed = _smooth(kneeAngle);
-    return _evaluateCycleDownUp(
-      angle: smoothed,
-      upThreshold: 155.0,
-      downThreshold: 105.0,
-      readyPrompt: 'Squat down',
-      downPrompt: 'Good squat • Stand back up!',
-      repDonePrompt: 'Squat counted!',
-      confidence: confidence,
-      now: now,
+    final upright = _isUprightPosture(side.shoulder, side.ankle, minVerticalRatio: 0.7) &&
+        side.shoulder.y < side.hip.y &&
+        side.hip.y < side.ankle.y;
+    if (!upright) {
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Stand upright in side / 45° view',
+        confidence: side.confidence,
+      );
+    }
+
+    final smoothedKnee = _smooth(calculateAngle(side.hip, side.knee, side.ankle));
+    final bodyHeight = (side.ankle.y - side.shoulder.y).abs();
+
+    if (smoothedKnee >= 150.0) {
+      _baselineHipY = side.hip.y;
+      _baselineBodyHeight = bodyHeight;
+      if (_stage == ExerciseStage.activePhase && _canTriggerRep(now)) {
+        _stage = ExerciseStage.ready;
+        _lastRepAt = now;
+        return PoseAnalysisResult(
+          repIncremented: true,
+          stage: _stage,
+          feedbackMessage: 'Squat counted!',
+          primaryAngle: smoothedKnee,
+          confidence: side.confidence,
+        );
+      }
+      _stage = ExerciseStage.ready;
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Squat down',
+        primaryAngle: smoothedKnee,
+        confidence: side.confidence,
+      );
+    }
+
+    if (smoothedKnee <= 110.0 && _stage == ExerciseStage.ready) {
+      final hasHipDescended = _baselineHipY == null ||
+          _baselineBodyHeight == null ||
+          (side.hip.y - _baselineHipY!) >= _baselineBodyHeight! * 0.08;
+      if (!hasHipDescended) {
+        return PoseAnalysisResult(
+          stage: _stage,
+          feedbackMessage: 'Lower hips down into squat',
+          primaryAngle: smoothedKnee,
+          confidence: side.confidence,
+        );
+      }
+      _stage = ExerciseStage.activePhase;
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Good squat • Stand back up!',
+        primaryAngle: smoothedKnee,
+        confidence: side.confidence,
+      );
+    }
+
+    return PoseAnalysisResult(
+      stage: _stage,
+      feedbackMessage: _stage == ExerciseStage.activePhase
+          ? 'Good squat • Stand back up!'
+          : 'Squat down',
+      primaryAngle: smoothedKnee,
+      confidence: side.confidence,
     );
   }
 
   PoseAnalysisResult _analyzeSitUp(Map<int, LandmarkPoint> byId, DateTime now) {
-    final triplet = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftShoulderId, leftHipId, leftKneeId),
-      rightIds: (rightShoulderId, rightHipId, rightKneeId),
-    );
-    if (triplet == null) {
-      return _missingPose('Keep shoulders, hips & knees in view');
+    final side = _bestVisibleSide(byId);
+    if (side == null) {
+      return _missingPose('Show full body side view on mat');
     }
 
-    final hipAngle = _smooth(calculateAngle(triplet.$1, triplet.$2, triplet.$3));
-    final confidence = _tripletConfidence(triplet);
+    // Require hips and ankles grounded horizontally on mat (blocks standing & bowing).
+    final legSpan = _distance(side.hip, side.ankle);
+    final isGroundedOnMat = legSpan > 0 &&
+        (side.hip.y - side.ankle.y).abs() <= legSpan * 0.60;
+    if (!isGroundedOnMat) {
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Lie down on mat with knees bent',
+        confidence: side.confidence,
+      );
+    }
 
-    // Peak-counted cycle: lie back (>= 115 deg) -> curl up (<= 75 deg) counts rep immediately
+    final hipAngle = _smooth(calculateAngle(side.shoulder, side.hip, side.knee));
+
+    // Peak-counted cycle: lie back (>= 115 deg) -> curl up (<= 80 deg) counts rep immediately
     // while user faces screen, then must return >= 115 deg before next rep triggers.
     if (hipAngle >= 115.0) {
       _stage = ExerciseStage.ready;
@@ -224,11 +353,11 @@ class ExercisePoseAnalyzer {
         stage: _stage,
         feedbackMessage: 'Curl torso up toward knees',
         primaryAngle: hipAngle,
-        confidence: confidence,
+        confidence: side.confidence,
       );
     }
 
-    if (hipAngle <= 75.0 && _stage == ExerciseStage.ready) {
+    if (hipAngle <= 80.0 && _stage == ExerciseStage.ready) {
       if (_canTriggerRep(now)) {
         _stage = ExerciseStage.activePhase;
         _lastRepAt = now;
@@ -237,7 +366,7 @@ class ExercisePoseAnalyzer {
           stage: _stage,
           feedbackMessage: 'Sit-up counted! Lower back down',
           primaryAngle: hipAngle,
-          confidence: confidence,
+          confidence: side.confidence,
         );
       }
     }
@@ -248,65 +377,80 @@ class ExercisePoseAnalyzer {
           ? 'Lower back down to start next rep'
           : 'Keep curling up',
       primaryAngle: hipAngle,
-      confidence: confidence,
+      confidence: side.confidence,
     );
   }
 
   PoseAnalysisResult _analyzePlank(Map<int, LandmarkPoint> byId) {
-    final body = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftShoulderId, leftHipId, leftAnkleId),
-      rightIds: (rightShoulderId, rightHipId, rightAnkleId),
-    ) ??
-        _bestVisibleTriplet(
-          byId,
-          leftIds: (leftShoulderId, leftHipId, leftKneeId),
-          rightIds: (rightShoulderId, rightHipId, rightKneeId),
-        );
-
-    if (body == null) {
+    final side = _bestVisibleSide(byId, requireArm: true);
+    if (side == null) {
       _stage = ExerciseStage.waitingForPose;
       return const PoseAnalysisResult(
         isHoldingForm: false,
         stage: ExerciseStage.waitingForPose,
-        feedbackMessage: 'Position full body in camera view',
+        feedbackMessage: 'Show full body plank from side (hands to ankles)',
       );
     }
 
     _missingPoseFrames = 0;
-    final bodyAngle = _smooth(calculateAngle(body.$1, body.$2, body.$3));
-    final confidence = _tripletConfidence(body);
+    final bodyAngle = _smooth(calculateAngle(side.shoulder, side.hip, side.ankle));
+    final kneeAngle = calculateAngle(side.hip, side.knee, side.ankle);
 
-    final shoulder = body.$1;
-    final hip = body.$2;
-    final dx = (shoulder.x - hip.x).abs();
-    final dy = (shoulder.y - hip.y).abs();
+    final elbow = side.elbow!;
+    final wrist = side.wrist!;
+    final supportPoint = wrist.y >= elbow.y ? wrist : elbow;
+    final shoulderLift = supportPoint.y - side.shoulder.y;
+    final upperArmLen = _distance(side.shoulder, elbow);
 
-    // Distinguish plank hold (side horizontal OR foreshortened front-on mat pose)
-    // from upright standing facing the camera.
-    bool isPlankPosture = dx >= dy * 0.9;
-    if (!isPlankPosture) {
-      final lShoulder = byId[leftShoulderId];
-      final rShoulder = byId[rightShoulderId];
-      if (lShoulder != null &&
-          rShoulder != null &&
-          lShoulder.visibility >= minVisibility &&
-          rShoulder.visibility >= minVisibility) {
-        final shoulderWidth = (lShoulder.x - rShoulder.x).abs();
-        if (shoulderWidth > 0 && dy <= shoulderWidth * 1.45) {
-          isPlankPosture = true;
-        }
-      }
+    final isHorizontal = _isHorizontalPosture(
+      side.shoulder,
+      side.ankle,
+      minHorizontalRatio: 0.8,
+    );
+    if (!isHorizontal) {
+      _stage = ExerciseStage.ready;
+      return PoseAnalysisResult(
+        isHoldingForm: false,
+        stage: _stage,
+        feedbackMessage: 'Get down into plank position',
+        primaryAngle: bodyAngle,
+        confidence: side.confidence,
+      );
     }
 
-    if (isPlankPosture && bodyAngle >= 140.0) {
+    final isSupportedAboveMat =
+        shoulderLift >= math.max(12.0, upperArmLen * 0.35) &&
+        side.ankle.y >= side.shoulder.y;
+    if (!isSupportedAboveMat) {
+      _stage = ExerciseStage.ready;
+      return PoseAnalysisResult(
+        isHoldingForm: false,
+        stage: _stage,
+        feedbackMessage: 'Prop body up on forearms or hands',
+        primaryAngle: bodyAngle,
+        confidence: side.confidence,
+      );
+    }
+
+    if (kneeAngle < 150.0 || _hasKneeOnFloor(side, supportPoint, shoulderLift)) {
+      _stage = ExerciseStage.ready;
+      return PoseAnalysisResult(
+        isHoldingForm: false,
+        stage: _stage,
+        feedbackMessage: 'Keep knees lifted & straight',
+        primaryAngle: bodyAngle,
+        confidence: side.confidence,
+      );
+    }
+
+    if (bodyAngle >= 145.0) {
       _stage = ExerciseStage.holdGood;
       return PoseAnalysisResult(
         isHoldingForm: true,
         stage: _stage,
         feedbackMessage: 'Hold steady • Great plank form!',
         primaryAngle: bodyAngle,
-        confidence: confidence,
+        confidence: side.confidence,
       );
     }
 
@@ -314,36 +458,49 @@ class ExercisePoseAnalyzer {
     return PoseAnalysisResult(
       isHoldingForm: false,
       stage: _stage,
-      feedbackMessage: !isPlankPosture
-          ? 'Get down into plank position'
-          : 'Keep back & hips aligned',
+      feedbackMessage: 'Keep back & hips aligned',
       primaryAngle: bodyAngle,
-      confidence: confidence,
+      confidence: side.confidence,
     );
   }
 
   PoseAnalysisResult _analyzeLunges(Map<int, LandmarkPoint> byId, DateTime now) {
-    final left = _getTriplet(byId, leftHipId, leftKneeId, leftAnkleId);
-    final right = _getTriplet(byId, rightHipId, rightKneeId, rightAnkleId);
-
-    if (left == null && right == null) {
-      return _missingPose('Keep legs visible in camera view');
+    final side = _bestVisibleSide(byId);
+    if (side == null) {
+      return _missingPose('Step back: full body must be visible');
     }
 
+    final upright = _isUprightPosture(side.shoulder, side.ankle, minVerticalRatio: 0.7) &&
+        side.shoulder.y < side.hip.y &&
+        side.hip.y < side.ankle.y;
+    if (!upright) {
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Stand upright to begin lunges',
+        confidence: side.confidence,
+      );
+    }
+
+    final left = _getTriplet(byId, leftHipId, leftKneeId, leftAnkleId);
+    final right = _getTriplet(byId, rightHipId, rightKneeId, rightAnkleId);
     final angles = <double>[
       if (left != null) calculateAngle(left.$1, left.$2, left.$3),
       if (right != null) calculateAngle(right.$1, right.$2, right.$3),
     ];
 
     final minKneeAngle = _smooth(angles.reduce(math.min));
-    final standingAllStraight = angles.every((a) => a >= 155.0);
-    final confidence = [
-      if (left != null) _tripletConfidence(left),
-      if (right != null) _tripletConfidence(right),
-    ].reduce((a, b) => a + b) /
-        angles.length;
+    final standingAllStraight = angles.every((a) => a >= 150.0);
+    final hipYValues = <double>[
+      if (left != null) left.$1.y,
+      if (right != null) right.$1.y,
+    ];
+    final avgHipY =
+        hipYValues.reduce((a, b) => a + b) / hipYValues.length;
+    final bodyHeight = (side.ankle.y - side.shoulder.y).abs();
 
     if (standingAllStraight) {
+      _baselineHipY = avgHipY;
+      _baselineBodyHeight = bodyHeight;
       if (_stage == ExerciseStage.activePhase && _canTriggerRep(now)) {
         _stage = ExerciseStage.ready;
         _lastRepAt = now;
@@ -352,7 +509,7 @@ class ExercisePoseAnalyzer {
           stage: _stage,
           feedbackMessage: 'Lunge counted!',
           primaryAngle: minKneeAngle,
-          confidence: confidence,
+          confidence: side.confidence,
         );
       }
       _stage = ExerciseStage.ready;
@@ -360,17 +517,28 @@ class ExercisePoseAnalyzer {
         stage: _stage,
         feedbackMessage: 'Step forward & bend knee',
         primaryAngle: minKneeAngle,
-        confidence: confidence,
+        confidence: side.confidence,
       );
     }
 
     if (minKneeAngle <= 115.0 && _stage == ExerciseStage.ready) {
+      final hasHipDescended = _baselineHipY == null ||
+          _baselineBodyHeight == null ||
+          (avgHipY - _baselineHipY!) >= _baselineBodyHeight! * 0.08;
+      if (!hasHipDescended) {
+        return PoseAnalysisResult(
+          stage: _stage,
+          feedbackMessage: 'Lower hips down into lunge',
+          primaryAngle: minKneeAngle,
+          confidence: side.confidence,
+        );
+      }
       _stage = ExerciseStage.activePhase;
       return PoseAnalysisResult(
         stage: _stage,
         feedbackMessage: 'Good lunge • Step back up!',
         primaryAngle: minKneeAngle,
-        confidence: confidence,
+        confidence: side.confidence,
       );
     }
 
@@ -380,42 +548,35 @@ class ExercisePoseAnalyzer {
           ? 'Return to standing'
           : 'Bend deeper into lunge',
       primaryAngle: minKneeAngle,
-      confidence: confidence,
+      confidence: side.confidence,
     );
   }
 
   PoseAnalysisResult _analyzeLegRaises(Map<int, LandmarkPoint> byId, DateTime now) {
-    final bodyWithAnkle = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftShoulderId, leftHipId, leftAnkleId),
-      rightIds: (rightShoulderId, rightHipId, rightAnkleId),
-    );
-    final bodyFallback = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftShoulderId, leftHipId, leftKneeId),
-      rightIds: (rightShoulderId, rightHipId, rightKneeId),
-    );
-    final triplet = bodyWithAnkle ?? bodyFallback;
-    if (triplet == null) {
-      return _missingPose('Show torso, hips & legs in camera view');
+    final side = _bestVisibleSide(byId);
+    if (side == null) {
+      return _missingPose('Lie flat sideways: shoulders to ankles in frame');
     }
 
-    // Keep legs mostly straight when ankles are visible so bent knees are discouraged.
-    final legStraight = _bestVisibleTriplet(
-      byId,
-      leftIds: (leftHipId, leftKneeId, leftAnkleId),
-      rightIds: (rightHipId, rightKneeId, rightAnkleId),
-    );
-    if (legStraight != null &&
-        calculateAngle(legStraight.$1, legStraight.$2, legStraight.$3) < 125.0) {
+    // Require lying back/flat torso on mat so standing front kicks don't count.
+    if (!_isHorizontalPosture(side.shoulder, side.hip, minHorizontalRatio: 0.75)) {
       return PoseAnalysisResult(
         stage: _stage,
-        feedbackMessage: 'Keep your legs straight',
-        confidence: _tripletConfidence(triplet),
+        feedbackMessage: 'Lie flat on mat for leg raises',
+        confidence: side.confidence,
       );
     }
 
-    final hipAngle = _smooth(calculateAngle(triplet.$1, triplet.$2, triplet.$3));
+    final kneeAngle = calculateAngle(side.hip, side.knee, side.ankle);
+    if (kneeAngle < 125.0) {
+      return PoseAnalysisResult(
+        stage: _stage,
+        feedbackMessage: 'Keep your legs straight',
+        confidence: side.confidence,
+      );
+    }
+
+    final hipAngle = _smooth(calculateAngle(side.shoulder, side.hip, side.ankle));
     return _evaluateCycleDownUp(
       angle: hipAngle,
       upThreshold: 145.0,
@@ -423,7 +584,7 @@ class ExercisePoseAnalyzer {
       readyPrompt: 'Raise straight legs up',
       downPrompt: 'Hold & lower legs slowly',
       repDonePrompt: 'Leg raise counted!',
-      confidence: _tripletConfidence(triplet),
+      confidence: side.confidence,
       now: now,
     );
   }
@@ -483,6 +644,8 @@ class ExercisePoseAnalyzer {
     if (_missingPoseFrames > 10) {
       _stage = ExerciseStage.waitingForPose;
       _smoothedAngle = null;
+      _baselineHipY = null;
+      _baselineBodyHeight = null;
     }
     return PoseAnalysisResult(
       stage: ExerciseStage.waitingForPose,
@@ -505,6 +668,134 @@ class ExercisePoseAnalyzer {
     return now.difference(_lastRepAt!) >= _repCooldown;
   }
 
+  bool _isHorizontalPosture(
+    LandmarkPoint a,
+    LandmarkPoint b, {
+    double minHorizontalRatio = 0.8,
+  }) {
+    final dx = (a.x - b.x).abs();
+    final dy = (a.y - b.y).abs();
+    return dx >= dy * minHorizontalRatio;
+  }
+
+  bool _isUprightPosture(
+    LandmarkPoint top,
+    LandmarkPoint bottom, {
+    double minVerticalRatio = 0.7,
+  }) {
+    final dy = bottom.y - top.y;
+    final dx = (top.x - bottom.x).abs();
+    return dy > dx * minVerticalRatio;
+  }
+
+  bool _hasKneeOnFloor(
+    _SideBody side,
+    LandmarkPoint supportPoint,
+    double shoulderLift,
+  ) {
+    final spanX = (side.ankle.x - supportPoint.x).abs();
+    if (spanX <= shoulderLift * 0.6 || shoulderLift < 20.0) {
+      return false;
+    }
+    final rawT =
+        (side.knee.x - supportPoint.x) / (side.ankle.x - supportPoint.x);
+    final t = rawT.clamp(0.0, 1.0);
+    final floorYAtKnee =
+        supportPoint.y + t * (side.ankle.y - supportPoint.y);
+    final kneeLift = floorYAtKnee - side.knee.y;
+    return kneeLift < shoulderLift * 0.10;
+  }
+
+  double _distance(LandmarkPoint a, LandmarkPoint b) {
+    final dx = a.x - b.x;
+    final dy = a.y - b.y;
+    return math.sqrt((dx * dx) + (dy * dy));
+  }
+
+  _SideBody? _bestVisibleSide(
+    Map<int, LandmarkPoint> byId, {
+    bool requireArm = false,
+  }) {
+    final left = _extractSide(
+      byId,
+      shoulderId: leftShoulderId,
+      elbowId: leftElbowId,
+      wristId: leftWristId,
+      hipId: leftHipId,
+      kneeId: leftKneeId,
+      ankleId: leftAnkleId,
+      requireArm: requireArm,
+    );
+    final right = _extractSide(
+      byId,
+      shoulderId: rightShoulderId,
+      elbowId: rightElbowId,
+      wristId: rightWristId,
+      hipId: rightHipId,
+      kneeId: rightKneeId,
+      ankleId: rightAnkleId,
+      requireArm: requireArm,
+    );
+    if (left != null && right != null) {
+      return left.minVisibility >= right.minVisibility ? left : right;
+    }
+    return left ?? right;
+  }
+
+  _SideBody? _extractSide(
+    Map<int, LandmarkPoint> byId, {
+    required int shoulderId,
+    required int elbowId,
+    required int wristId,
+    required int hipId,
+    required int kneeId,
+    required int ankleId,
+    required bool requireArm,
+  }) {
+    final shoulder = byId[shoulderId];
+    final hip = byId[hipId];
+    final knee = byId[kneeId];
+    final ankle = byId[ankleId];
+    final elbow = byId[elbowId];
+    final wrist = byId[wristId];
+
+    if (shoulder == null || hip == null || knee == null || ankle == null) {
+      return null;
+    }
+    if (requireArm && (elbow == null || wrist == null)) {
+      return null;
+    }
+    final requiredPoints = <LandmarkPoint>[
+      shoulder,
+      hip,
+      knee,
+      ankle,
+      if (requireArm) ...[
+        elbow!,
+        wrist!,
+      ],
+    ];
+
+    double minVis = 1.0;
+    double sumVis = 0.0;
+    for (final pt in requiredPoints) {
+      if (pt.visibility < minVisibility) return null;
+      if (pt.visibility < minVis) minVis = pt.visibility;
+      sumVis += pt.visibility;
+    }
+
+    return _SideBody(
+      shoulder: shoulder,
+      elbow: elbow,
+      wrist: wrist,
+      hip: hip,
+      knee: knee,
+      ankle: ankle,
+      minVisibility: minVis,
+      confidence: sumVis / requiredPoints.length,
+    );
+  }
+
   (LandmarkPoint, LandmarkPoint, LandmarkPoint)? _getTriplet(
     Map<int, LandmarkPoint> byId,
     int aId,
@@ -522,25 +813,4 @@ class ExercisePoseAnalyzer {
     }
     return (a, b, c);
   }
-
-  (LandmarkPoint, LandmarkPoint, LandmarkPoint)? _bestVisibleTriplet(
-    Map<int, LandmarkPoint> byId, {
-    required (int, int, int) leftIds,
-    required (int, int, int) rightIds,
-  }) {
-    final left = _getTriplet(byId, leftIds.$1, leftIds.$2, leftIds.$3);
-    final right = _getTriplet(byId, rightIds.$1, rightIds.$2, rightIds.$3);
-    if (left != null && right != null) {
-      return _tripletMinVisibility(left) >= _tripletMinVisibility(right)
-          ? left
-          : right;
-    }
-    return left ?? right;
-  }
-
-  double _tripletMinVisibility((LandmarkPoint, LandmarkPoint, LandmarkPoint) t) =>
-      math.min(t.$1.visibility, math.min(t.$2.visibility, t.$3.visibility));
-
-  double _tripletConfidence((LandmarkPoint, LandmarkPoint, LandmarkPoint) t) =>
-      (t.$1.visibility + t.$2.visibility + t.$3.visibility) / 3.0;
 }
