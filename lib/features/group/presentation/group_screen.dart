@@ -191,8 +191,8 @@ class _GroupScreenState extends State<GroupScreen>
         ..clearSnackBars()
         ..showSnackBar(
           SnackBar(
-            content: const Text(
-                'Only the Group Leader can change target difficulty.'),
+            content:
+                const Text('Only your group leader can change the difficulty.'),
             backgroundColor: const Color(0xFF1A1D1E),
             behavior: SnackBarBehavior.floating,
             shape:
