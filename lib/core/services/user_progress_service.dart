@@ -68,6 +68,9 @@ class UserAccountProgress {
   final int restoresLeft;
   final DateTime? cooldownUntil;
   final List<WorkoutHistoryEntry> workoutHistory;
+  final String workoutDifficulty;
+  final DateTime? groupCreatedAt;
+  final String? lastQuotaResetMonth;
 
   const UserAccountProgress({
     required this.accountKey,
@@ -84,7 +87,13 @@ class UserAccountProgress {
     this.restoresLeft = 3,
     this.cooldownUntil,
     this.workoutHistory = const [],
+    this.workoutDifficulty = 'Intermediate',
+    this.groupCreatedAt,
+    this.lastQuotaResetMonth,
   });
+
+  static String monthKeyFor(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}';
 
   /// Mengembalikan true apabila user masih dalam masa penalti cooldown keluar grup (UC-06 / UC-07).
   bool isOnCooldown({DateTime? now}) {
@@ -101,6 +110,37 @@ class UserAccountProgress {
     final diffSeconds = until.difference(ref).inSeconds;
     if (diffSeconds <= 0) return 0;
     return (diffSeconds / Duration.secondsPerDay).ceil().clamp(1, 7);
+  }
+
+  /// UC-08: Menghitung hari aktif program berdasarkan selisih hari ini dengan tanggal awal grup dibuat.
+  int computeEffectiveActiveDay({DateTime? now}) {
+    final clampedStored = currentActiveDay.clamp(1, 30);
+    if (!hasGroup || groupCreatedAt == null) return clampedStored;
+    final ref = now ?? DateTime.now();
+    final startDate = DateTime(groupCreatedAt!.year, groupCreatedAt!.month, groupCreatedAt!.day);
+    final currentDate = DateTime(ref.year, ref.month, ref.day);
+    final elapsedDay = (currentDate.difference(startDate).inDays + 1).clamp(1, 30);
+    return elapsedDay > clampedStored ? elapsedDay : clampedStored;
+  }
+
+  /// Menyelaraskan pergantian hari program (UC-08) & reset kuota restore bulanan (UC-12).
+  UserAccountProgress syncForDate(DateTime now) {
+    final currentMonth = monthKeyFor(now);
+    final effectiveDay = computeEffectiveActiveDay(now: now);
+    final bool dayAdvanced = effectiveDay > currentActiveDay;
+    final bool monthChanged =
+        lastQuotaResetMonth != null && lastQuotaResetMonth != currentMonth;
+
+    if (!dayAdvanced && !monthChanged && lastQuotaResetMonth == currentMonth) {
+      return this;
+    }
+
+    return copyWith(
+      currentActiveDay: effectiveDay,
+      isUserCompleted: dayAdvanced ? false : isUserCompleted,
+      restoresLeft: monthChanged ? (isPro ? 5 : 3) : restoresLeft,
+      lastQuotaResetMonth: currentMonth,
+    );
   }
 
   int get totalWorkoutsCount =>
@@ -127,6 +167,10 @@ class UserAccountProgress {
     DateTime? cooldownUntil,
     bool clearCooldown = false,
     List<WorkoutHistoryEntry>? workoutHistory,
+    String? workoutDifficulty,
+    DateTime? groupCreatedAt,
+    bool clearGroupCreatedAt = false,
+    String? lastQuotaResetMonth,
   }) {
     return UserAccountProgress(
       accountKey: accountKey ?? this.accountKey,
@@ -143,6 +187,10 @@ class UserAccountProgress {
       restoresLeft: restoresLeft ?? this.restoresLeft,
       cooldownUntil: clearCooldown ? null : (cooldownUntil ?? this.cooldownUntil),
       workoutHistory: workoutHistory ?? this.workoutHistory,
+      workoutDifficulty: workoutDifficulty ?? this.workoutDifficulty,
+      groupCreatedAt:
+          clearGroupCreatedAt ? null : (groupCreatedAt ?? this.groupCreatedAt),
+      lastQuotaResetMonth: lastQuotaResetMonth ?? this.lastQuotaResetMonth,
     );
   }
 }
@@ -206,6 +254,10 @@ class UserProgressService {
       final cooldownUntil =
           cooldownRaw != null ? DateTime.tryParse(cooldownRaw) : null;
 
+      final groupCreatedRaw = prefs.getString('progress_${accountKey}_group_created_at');
+      final groupCreatedAt =
+          groupCreatedRaw != null ? DateTime.tryParse(groupCreatedRaw) : null;
+
       final historyJson = prefs.getString('progress_${accountKey}_workout_history');
       final List<WorkoutHistoryEntry> history = _decodeHistory(historyJson);
 
@@ -224,6 +276,11 @@ class UserProgressService {
         restoresLeft: prefs.getInt('progress_${accountKey}_restores_left') ?? defaultRestores,
         cooldownUntil: cooldownUntil,
         workoutHistory: history,
+        workoutDifficulty:
+            prefs.getString('progress_${accountKey}_workout_difficulty') ?? 'Intermediate',
+        groupCreatedAt: groupCreatedAt,
+        lastQuotaResetMonth:
+            prefs.getString('progress_${accountKey}_last_quota_reset_month'),
       );
       _memoryCache[accountKey] = loaded;
       return loaded;
@@ -269,6 +326,24 @@ class UserProgressService {
       );
     } else {
       await prefs.remove('progress_${key}_cooldown_until');
+    }
+
+    await prefs.setString('progress_${key}_workout_difficulty', progress.workoutDifficulty);
+
+    if (progress.groupCreatedAt != null) {
+      await prefs.setString(
+        'progress_${key}_group_created_at',
+        progress.groupCreatedAt!.toIso8601String(),
+      );
+    } else {
+      await prefs.remove('progress_${key}_group_created_at');
+    }
+
+    if (progress.lastQuotaResetMonth != null) {
+      await prefs.setString(
+        'progress_${key}_last_quota_reset_month',
+        progress.lastQuotaResetMonth!,
+      );
     }
 
     await prefs.setString(

@@ -56,30 +56,73 @@ void main() {
       expect(ExercisePoseAnalyzer.parseExerciseType('Plank'), ExerciseType.plank);
       expect(ExercisePoseAnalyzer.parseExerciseType('Lunges'), ExerciseType.lunges);
       expect(ExercisePoseAnalyzer.parseExerciseType('Leg Raises'), ExerciseType.legRaises);
+      expect(ExercisePoseAnalyzer.cameraGuideFor('Push-up'), 'Side view • Full body');
+      expect(ExercisePoseAnalyzer.cameraGuideFor('Squat'), 'Side / 45° view • Full body');
     });
   });
 
   group('ExercisePoseAnalyzer - All 6 SDD/Program Exercises', () {
-    test('1. Push-up: up -> down -> up counts 1 clean rep and enforces cooldown', () {
+    test('1. Push-up: full-body rep counts cleanly; knee push-ups & standing blocked', () {
       final analyzer = ExercisePoseAnalyzer(exerciseName: 'Push-up');
       var t = DateTime(2026, 11, 25, 8, 0, 0);
 
-      // Horizontal body with straight arm (180 deg)
+      // Full-body side plank top: wrist & ankle on floor (y=200), knee lifted cleanly
       final upPose = [
         _pt(11, 100, 100),
         _pt(13, 100, 150),
         _pt(15, 100, 200),
-        _pt(23, 220, 100),
-        _pt(25, 320, 100),
+        _pt(23, 210, 135),
+        _pt(25, 305, 168),
+        _pt(27, 400, 200),
       ];
-      // Lowered chest -> elbow bent ~90 deg
+      // Lowered chest -> elbow bent ~101 deg (<= 108 deg), torso & legs aligned
       final downPose = [
         _pt(11, 100, 150),
         _pt(13, 60, 150),
-        _pt(15, 60, 200),
-        _pt(23, 220, 150),
-        _pt(25, 320, 150),
+        _pt(15, 100, 200),
+        _pt(23, 210, 167),
+        _pt(25, 305, 183),
+        _pt(27, 400, 200),
       ];
+      // Knee push-up with shins raised (knee angle ~90 deg)
+      final bentKneePushUp = [
+        _pt(11, 100, 150),
+        _pt(13, 60, 150),
+        _pt(15, 100, 200),
+        _pt(23, 200, 170),
+        _pt(25, 290, 200),
+        _pt(27, 290, 120),
+      ];
+      // Knee push-up with knees resting flat on mat & toes down
+      final floorKneePushUp = [
+        _pt(11, 100, 100),
+        _pt(13, 100, 150),
+        _pt(15, 100, 200),
+        _pt(23, 200, 150),
+        _pt(25, 280, 200),
+        _pt(27, 400, 200),
+      ];
+      // Missing ankle (half-body framing)
+      final halfBodyPose = [
+        _pt(11, 100, 100),
+        _pt(13, 100, 150),
+        _pt(15, 100, 200),
+        _pt(23, 210, 135),
+        _pt(25, 305, 168),
+      ];
+
+      expect(
+        analyzer.analyze(_result(halfBodyPose, t), now: t).stage,
+        ExerciseStage.waitingForPose,
+      );
+      expect(
+        analyzer.analyze(_result(bentKneePushUp, t), now: t).feedbackMessage,
+        'Straighten legs onto toes (no knee push-ups)',
+      );
+      expect(
+        analyzer.analyze(_result(floorKneePushUp, t), now: t).feedbackMessage,
+        'Straighten legs onto toes (no knee push-ups)',
+      );
 
       final r1 = _feedSteady(analyzer, upPose, t);
       expect(r1.stage, ExerciseStage.ready);
@@ -96,25 +139,39 @@ void main() {
       expect(r3.stage, ExerciseStage.ready);
     });
 
-    test('2. Squat: standing -> deep squat -> standing counts 1 rep; half squat ignored', () {
+    test('2. Squat: full-body deep squat counts 1 rep; half squat & lying cheat ignored', () {
       final analyzer = ExercisePoseAnalyzer(exerciseName: 'Squat');
       var t = DateTime(2026, 11, 25, 8, 5, 0);
 
       final standing = [
+        _pt(11, 200, 100),
         _pt(23, 200, 200),
         _pt(25, 200, 300),
         _pt(27, 200, 400),
       ];
       final halfSquat = [
+        _pt(11, 160, 130),
         _pt(23, 160, 230),
         _pt(25, 200, 300),
         _pt(27, 200, 400),
       ]; // Knee ~135 deg
       final deepSquat = [
+        _pt(11, 110, 200),
         _pt(23, 100, 300),
         _pt(25, 200, 300),
         _pt(27, 200, 400),
-      ]; // Knee = 90 deg
+      ]; // Knee = 90 deg, hip.y drops 200 -> 300
+      final lyingBentKnees = [
+        _pt(11, 100, 300),
+        _pt(23, 200, 300),
+        _pt(25, 260, 230),
+        _pt(27, 310, 300),
+      ];
+
+      expect(
+        analyzer.analyze(_result(lyingBentKnees, t), now: t).feedbackMessage,
+        'Stand upright in side / 45° view',
+      );
 
       _feedSteady(analyzer, standing, t);
 
@@ -133,22 +190,36 @@ void main() {
       expect(upRes.repIncremented, isTrue);
     });
 
-    test('3. Sit-up: lying -> crunch counts immediately, waits for return down before next rep', () {
+    test('3. Sit-up: lying mat crunch counts cleanly and rejects standing bow', () {
       final analyzer = ExercisePoseAnalyzer(exerciseName: 'Sit-up');
       var t = DateTime(2026, 11, 25, 8, 10, 0);
 
-      // Lying back: shoulder(100, 300), hip(200, 300), knee(260, 230) -> ~131 deg
+      // Full-body lying back on mat: shoulder(100, 300), hip(200, 300), knee(260, 230), ankle(310, 300)
       final lyingPose = [
         _pt(11, 100, 300),
         _pt(23, 200, 300),
         _pt(25, 260, 230),
+        _pt(27, 310, 300),
       ];
-      // Crunch up: shoulder(210, 210), hip(200, 300), knee(260, 230) -> ~47 deg
+      // Crunch up: shoulder(210, 210), hip(200, 300), knee(260, 230), ankle(310, 300) -> ~47 deg
       final crunchPose = [
         _pt(11, 210, 210),
         _pt(23, 200, 300),
         _pt(25, 260, 230),
+        _pt(27, 310, 300),
       ];
+      // Standing upright bowing forward (ankle well below hip vertically)
+      final standingBow = [
+        _pt(11, 270, 200),
+        _pt(23, 200, 200),
+        _pt(25, 200, 300),
+        _pt(27, 200, 400),
+      ];
+
+      expect(
+        analyzer.analyze(_result(standingBow, t), now: t).feedbackMessage,
+        'Lie down on mat with knees bent',
+      );
 
       final r1 = _feedSteady(analyzer, lyingPose, t);
       expect(r1.stage, ExerciseStage.ready);
@@ -171,27 +242,53 @@ void main() {
       expect(rSecond.repIncremented, isTrue);
     });
 
-    test('4. Plank: validates straight horizontal posture and rejects standing upright', () {
+    test('4. Plank: validates supported straight plank; rejects sagging hips, lying flat, knee plank, and standing', () {
       final analyzer = ExercisePoseAnalyzer(exerciseName: 'Plank');
       var t = DateTime(2026, 11, 25, 8, 15, 0);
 
-      // Side plank posture: straight line horizontally (~180 deg)
+      // Supported high/forearm plank: shoulder propped above wrist & straight line to ankle
       final validPlank = [
         _pt(11, 100, 200),
-        _pt(23, 220, 205),
-        _pt(27, 340, 210),
+        _pt(13, 100, 230),
+        _pt(15, 100, 260),
+        _pt(23, 200, 220),
+        _pt(25, 290, 240),
+        _pt(27, 380, 260),
       ];
-      // Sagging hips (~110 deg)
+      // Sagging hips (< 145 deg)
       final badHipPlank = [
-        _pt(11, 100, 180),
-        _pt(23, 200, 260),
-        _pt(27, 300, 190),
+        _pt(11, 100, 200),
+        _pt(13, 100, 230),
+        _pt(15, 100, 260),
+        _pt(23, 200, 285),
+        _pt(25, 290, 255),
+        _pt(27, 380, 260),
       ];
-      // Standing upright facing camera (dy much larger than shoulder width)
+      // Lying flat on mat without supporting upper body on forearms/hands
+      final lyingFlat = [
+        _pt(11, 100, 260),
+        _pt(13, 130, 260),
+        _pt(15, 160, 260),
+        _pt(23, 220, 260),
+        _pt(25, 300, 260),
+        _pt(27, 380, 260),
+      ];
+      // Knee plank with knees resting on mat
+      final kneePlank = [
+        _pt(11, 100, 200),
+        _pt(13, 100, 230),
+        _pt(15, 100, 260),
+        _pt(23, 190, 230),
+        _pt(25, 280, 260),
+        _pt(27, 380, 260),
+      ];
+      // Standing upright
       final standingUpright = [
         _pt(11, 180, 100),
-        _pt(12, 230, 100), // shoulder width = 50
-        _pt(23, 185, 260), // dy = 160 (> 50 * 1.45)
+        _pt(13, 180, 160),
+        _pt(15, 180, 220),
+        _pt(23, 185, 260),
+        _pt(25, 185, 340),
         _pt(27, 185, 420),
       ];
 
@@ -204,15 +301,27 @@ void main() {
       expect(bad.isHoldingForm, isFalse);
 
       t = t.add(const Duration(milliseconds: 600));
+      final flat = _feedSteady(analyzer, lyingFlat, t);
+      expect(flat.isHoldingForm, isFalse);
+      expect(flat.feedbackMessage, 'Prop body up on forearms or hands');
+
+      t = t.add(const Duration(milliseconds: 600));
+      final knees = _feedSteady(analyzer, kneePlank, t);
+      expect(knees.isHoldingForm, isFalse);
+      expect(knees.feedbackMessage, 'Keep knees lifted & straight');
+
+      t = t.add(const Duration(milliseconds: 600));
       final standing = _feedSteady(analyzer, standingUpright, t);
       expect(standing.isHoldingForm, isFalse);
     });
 
-    test('5. Lunges: standing -> deep lunge -> standing counts 1 rep', () {
+    test('5. Lunges: standing -> deep lunge -> standing counts 1 rep; flamingo curl rejected', () {
       final analyzer = ExercisePoseAnalyzer(exerciseName: 'Lunges');
       var t = DateTime(2026, 11, 25, 8, 20, 0);
 
       final standing = [
+        _pt(11, 180, 100),
+        _pt(12, 220, 100),
         _pt(23, 180, 200),
         _pt(25, 180, 300),
         _pt(27, 180, 400),
@@ -221,7 +330,9 @@ void main() {
         _pt(28, 220, 400),
       ];
       final lungeBottom = [
-        // Front left knee 90 deg
+        _pt(11, 140, 160),
+        _pt(12, 160, 160),
+        // Front left knee 90 deg, hip.y drops 200 -> 260
         _pt(23, 140, 260),
         _pt(25, 200, 260),
         _pt(27, 200, 380),
@@ -230,8 +341,24 @@ void main() {
         _pt(26, 140, 360),
         _pt(28, 80, 360),
       ];
+      // Bending one knee behind while keeping hips standing high (no descent)
+      final flamingoCheat = [
+        _pt(11, 180, 100),
+        _pt(12, 220, 100),
+        _pt(23, 180, 200),
+        _pt(25, 180, 300),
+        _pt(27, 180, 400),
+        _pt(24, 220, 200),
+        _pt(26, 220, 300),
+        _pt(28, 120, 300),
+      ];
 
       _feedSteady(analyzer, standing, t);
+
+      t = t.add(const Duration(milliseconds: 500));
+      final cheatRes = _feedSteady(analyzer, flamingoCheat, t);
+      expect(cheatRes.stage, ExerciseStage.ready);
+      expect(cheatRes.feedbackMessage, 'Lower hips down into lunge');
 
       t = t.add(const Duration(milliseconds: 500));
       final bottom = _feedSteady(analyzer, lungeBottom, t);
@@ -242,7 +369,7 @@ void main() {
       expect(finish.repIncremented, isTrue);
     });
 
-    test('6. Leg Raises: extended -> raised straight -> lowered counts 1 rep; bent knees blocked', () {
+    test('6. Leg Raises: extended -> raised straight -> lowered counts 1 rep; bent knees & standing kick blocked', () {
       final analyzer = ExercisePoseAnalyzer(exerciseName: 'Leg Raises');
       var t = DateTime(2026, 11, 25, 8, 25, 0);
 
@@ -264,6 +391,17 @@ void main() {
         _pt(25, 200, 220),
         _pt(27, 280, 220), // Knee 90 deg (< 125 deg)
       ];
+      final standingKick = [
+        _pt(11, 200, 100),
+        _pt(23, 200, 220),
+        _pt(25, 280, 220),
+        _pt(27, 360, 220),
+      ];
+
+      expect(
+        analyzer.analyze(_result(standingKick, t), now: t).feedbackMessage,
+        'Lie flat on mat for leg raises',
+      );
 
       _feedSteady(analyzer, legsDown, t);
 
@@ -396,6 +534,39 @@ void main() {
 
       expect(find.text('Izinkan akses kamera untuk memulai latihan.'), findsOneWidget);
       expect(find.byKey(const Key('retry_camera_permission_btn')), findsOneWidget);
+    });
+
+    testWidgets('shows unavailable camera screen without manual bypass when live camera fails', (tester) async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(cameraChannel, (call) async {
+        if (call.method == 'availableCameras') {
+          return <dynamic>[];
+        }
+        return null;
+      });
+
+      const plan = WorkoutDayPlan(
+        dayNumber: 1,
+        isRestDay: false,
+        category: 'Upper & Core',
+        exerciseNames: ['Push-up'],
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: WorkoutSessionScreen(
+            dayPlan: plan,
+            userName: 'Tester',
+            enableLiveCamera: true,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('Kamera Tidak Tersedia'), findsOneWidget);
+      expect(find.text('+1 Rep (Tap / Detected)'), findsNothing);
+      expect(find.text('Manual +1 Rep'), findsNothing);
     });
   });
 }

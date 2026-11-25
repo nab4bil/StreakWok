@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
@@ -30,6 +31,7 @@ class WorkoutSessionResult {
   final WorkoutSessionExitAction action;
   final int dayNumber;
   final int exerciseIndex;
+  final int setIndex;
   final int durationSeconds;
   final int totalReps;
 
@@ -37,6 +39,7 @@ class WorkoutSessionResult {
     required this.action,
     required this.dayNumber,
     this.exerciseIndex = 0,
+    this.setIndex = 1,
     this.durationSeconds = 0,
     this.totalReps = 0,
   });
@@ -47,6 +50,8 @@ class WorkoutSessionScreen extends StatefulWidget {
   final VoidCallback? onSessionCompleted;
   final String userName;
   final int initialExerciseIndex;
+  final int initialSetIndex;
+  final String? difficulty;
   final bool? enableLiveCamera;
 
   const WorkoutSessionScreen({
@@ -55,6 +60,8 @@ class WorkoutSessionScreen extends StatefulWidget {
     this.onSessionCompleted,
     this.userName = 'User',
     this.initialExerciseIndex = 0,
+    this.initialSetIndex = 1,
+    this.difficulty,
     this.enableLiveCamera,
   });
 
@@ -66,6 +73,7 @@ enum _CameraPipelineState {
   initializing,
   active,
   permissionDenied,
+  cameraUnavailable,
   fallbackSimulation,
 }
 
@@ -81,13 +89,22 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   int _totalElapsedSeconds = 0;
   Timer? _workoutTimer;
 
-  // Current Exercise State
+  // Current Exercise & Set State
   int _currentExerciseIndex = 0;
+  int _currentSet = 1;
   int _currentReps = 0;
   int _targetReps = 12;
   bool _isTimedExercise = false;
   int _timedSecondsRemaining = 30;
   int _sessionTotalReps = 0;
+
+  WorkoutDifficultySpec? get _difficultySpec => widget.difficulty != null
+      ? WorkoutDifficultySpec.fromLabel(widget.difficulty)
+      : null;
+
+  int get _totalSets => _difficultySpec?.sets ?? 1;
+  int get _defaultRestSeconds => _difficultySpec?.restSeconds ?? 20;
+  int get _plankDurationSeconds => _difficultySpec?.plankSeconds ?? 30;
 
   // Rest Interval State
   int _restSecondsRemaining = 20;
@@ -107,11 +124,33 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   bool _isProcessingFrame = false;
   bool _isDisposed = false;
   DateTime _lastProcessedFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime? _lastPlankHoldAt;
   List<LandmarkPoint> _latestLandmarks = const [];
   Size _latestImageSize = Size.zero;
-  String _poseFeedback = 'Position yourself in camera view';
+  String _poseFeedback = 'Show full body in camera view';
   bool _isHoldingPlankForm = false;
+  bool _showDebugManualControls = false;
   double? _primaryAngle;
+
+  bool get _hasFreshPlankHold {
+    if (!_isHoldingPlankForm || _lastPlankHoldAt == null) return false;
+    return DateTime.now().difference(_lastPlankHoldAt!) <=
+        const Duration(milliseconds: 1200);
+  }
+
+  bool get _shouldShowManualActionButton =>
+      _cameraState == _CameraPipelineState.fallbackSimulation ||
+      (kDebugMode &&
+          _showDebugManualControls &&
+          _cameraState == _CameraPipelineState.active);
+
+  void _toggleDebugManualControls() {
+    if (!kDebugMode || _cameraState != _CameraPipelineState.active) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _showDebugManualControls = !_showDebugManualControls;
+    });
+  }
 
   late AnimationController _pulseController;
 
@@ -133,8 +172,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
         widget.initialExerciseIndex < _exercises.length) {
       _currentExerciseIndex = widget.initialExerciseIndex;
     }
+    _currentSet = widget.initialSetIndex.clamp(1, _totalSets);
+    _restSecondsRemaining = _defaultRestSeconds;
 
     _poseAnalyzer = ExercisePoseAnalyzer(exerciseName: _currentExerciseName);
+    _poseFeedback = ExercisePoseAnalyzer.initialPromptFor(_currentExerciseName);
     _initCamera(fromInitState: true);
     _startInitialCountdown();
   }
@@ -181,7 +223,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
       if (cameras.isEmpty) {
         setState(() {
-          _cameraState = _CameraPipelineState.fallbackSimulation;
+          _cameraState = _CameraPipelineState.cameraUnavailable;
         });
         return;
       }
@@ -237,18 +279,18 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
         });
       } else {
         setState(() {
-          _cameraState = _CameraPipelineState.fallbackSimulation;
+          _cameraState = _CameraPipelineState.cameraUnavailable;
         });
       }
     } on MissingPluginException {
       if (_isDisposed || !mounted) return;
       setState(() {
-        _cameraState = _CameraPipelineState.fallbackSimulation;
+        _cameraState = _CameraPipelineState.cameraUnavailable;
       });
     } catch (_) {
       if (_isDisposed || !mounted) return;
       setState(() {
-        _cameraState = _CameraPipelineState.fallbackSimulation;
+        _cameraState = _CameraPipelineState.cameraUnavailable;
       });
     }
   }
@@ -258,7 +300,13 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
       return;
     }
     final nextIndex = (_selectedCameraIndex + 1) % _cameras.length;
-    _latestLandmarks = const [];
+    setState(() {
+      _latestLandmarks = const [];
+      _isHoldingPlankForm = false;
+      _lastPlankHoldAt = null;
+      _primaryAngle = null;
+      _poseFeedback = ExercisePoseAnalyzer.initialPromptFor(_currentExerciseName);
+    });
     await _initCamera(cameraIndexOverride: nextIndex);
   }
 
@@ -335,6 +383,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
         _latestImageSize = converted.uprightImageSize;
         _poseFeedback = analysis.feedbackMessage;
         _isHoldingPlankForm = analysis.isHoldingForm;
+        _lastPlankHoldAt = analysis.isHoldingForm ? now : null;
         _primaryAngle = analysis.primaryAngle;
       });
 
@@ -400,8 +449,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     final name = _currentExerciseName.toLowerCase();
     if (name.contains('plank')) {
       _isTimedExercise = true;
-      _timedSecondsRemaining = 30;
-      _targetReps = 30;
+      _timedSecondsRemaining = _plankDurationSeconds;
+      _targetReps = _plankDurationSeconds;
+    } else if (_difficultySpec != null) {
+      _isTimedExercise = false;
+      _targetReps = _difficultySpec!.targetRepsForExercise(_currentExerciseName);
     } else if (name.contains('squat') || name.contains('sit-up') || name.contains('leg raises')) {
       _isTimedExercise = false;
       _targetReps = 15;
@@ -412,8 +464,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     _currentReps = 0;
     _latestLandmarks = const [];
     _isHoldingPlankForm = false;
+    _lastPlankHoldAt = null;
     _primaryAngle = null;
-    _poseFeedback = 'Position yourself in camera view';
+    _poseFeedback = ExercisePoseAnalyzer.initialPromptFor(_currentExerciseName);
     _poseAnalyzer.resetForExercise(_currentExerciseName);
   }
 
@@ -425,7 +478,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_cameraState == _CameraPipelineState.permissionDenied) {
+      if (_cameraState == _CameraPipelineState.permissionDenied ||
+          _cameraState == _CameraPipelineState.cameraUnavailable) {
         return;
       }
       if (!_isPaused && !_isCancelDialogOpen) {
@@ -457,18 +511,28 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   void _startGlobalTimer() {
     _workoutTimer?.cancel();
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_cameraState == _CameraPipelineState.permissionDenied) {
+      if (_cameraState == _CameraPipelineState.permissionDenied ||
+          _cameraState == _CameraPipelineState.cameraUnavailable) {
         return;
       }
       if (!_isPaused && !_isCancelDialogOpen) {
         setState(() {
           _totalElapsedSeconds++;
+          final isPlankHoldingLive = _hasFreshPlankHold;
+          if (_cameraState == _CameraPipelineState.active &&
+              _isHoldingPlankForm &&
+              !isPlankHoldingLive) {
+            _isHoldingPlankForm = false;
+            _lastPlankHoldAt = null;
+          }
           final shouldTickPlank = _isTimedExercise &&
               _timedSecondsRemaining > 0 &&
-              (_cameraState != _CameraPipelineState.active || _isHoldingPlankForm);
+              (_cameraState == _CameraPipelineState.fallbackSimulation ||
+                  (_cameraState == _CameraPipelineState.active &&
+                      isPlankHoldingLive));
           if (shouldTickPlank) {
             _timedSecondsRemaining--;
-            _currentReps = 30 - _timedSecondsRemaining;
+            _currentReps = _plankDurationSeconds - _timedSecondsRemaining;
             if (_timedSecondsRemaining == 0) {
               _onCompleteCurrentExercise();
             }
@@ -601,6 +665,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
           action: WorkoutSessionExitAction.doItLater,
           dayNumber: widget.dayPlan.dayNumber,
           exerciseIndex: _currentExerciseIndex,
+          setIndex: _currentSet,
         ),
       );
     } else if (selectedAction == WorkoutSessionExitAction.quit) {
@@ -647,10 +712,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     if (!_isTimedExercise) {
       _sessionTotalReps += _currentReps;
     }
-    if (_currentExerciseIndex < _exercises.length - 1) {
+    final hasMoreExercises = _currentExerciseIndex < _exercises.length - 1;
+    final hasMoreSets = _currentSet < _totalSets;
+    if (hasMoreExercises || hasMoreSets) {
       setState(() {
         _phase = WorkoutSessionPhase.rest;
-        _restSecondsRemaining = 20;
+        _restSecondsRemaining = _defaultRestSeconds;
       });
       _startRestTimer();
     } else {
@@ -691,7 +758,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
   void _advanceToNextExercise() {
     setState(() {
-      _currentExerciseIndex++;
+      if (_currentExerciseIndex + 1 < _exercises.length) {
+        _currentExerciseIndex++;
+      } else if (_currentSet < _totalSets) {
+        _currentSet++;
+        _currentExerciseIndex = 0;
+      }
       _setupTargetForCurrentExercise();
       _phase = WorkoutSessionPhase.active;
     });
@@ -724,8 +796,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
   }
 
   Widget _buildBodyForCurrentPhase() {
-    if (_cameraState == _CameraPipelineState.permissionDenied) {
-      return _buildCameraPermissionDeniedView();
+    if (_cameraState == _CameraPipelineState.permissionDenied ||
+        _cameraState == _CameraPipelineState.cameraUnavailable) {
+      return _buildCameraPermissionDeniedView(
+        isUnavailable: _cameraState == _CameraPipelineState.cameraUnavailable,
+      );
     }
     switch (_phase) {
       case WorkoutSessionPhase.countdown:
@@ -739,10 +814,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     }
   }
 
-  // UC-09 Exception Flow: Camera denied by OS
-  Widget _buildCameraPermissionDeniedView() {
+  // UC-09 Exception Flow: Camera denied or unavailable on device
+  Widget _buildCameraPermissionDeniedView({bool isUnavailable = false}) {
     return Center(
-      key: const ValueKey('camera_permission_denied_view'),
+      key: ValueKey(
+        isUnavailable ? 'camera_unavailable_view' : 'camera_permission_denied_view',
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Container(
@@ -769,20 +846,22 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                 ),
               ),
               const SizedBox(height: 18),
-              const Text(
-                'Akses Kamera Diperlukan',
+              Text(
+                isUnavailable ? 'Kamera Tidak Tersedia' : 'Akses Kamera Diperlukan',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w800,
                   color: AppColors.textMain,
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Izinkan akses kamera untuk memulai latihan.',
+              Text(
+                isUnavailable
+                    ? 'Kamera diperlukan untuk validasi pose latihan. Pastikan tidak dipakai aplikasi lain lalu coba lagi.'
+                    : 'Izinkan akses kamera untuk memulai latihan.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 13,
                   color: AppColors.textMuted,
                   height: 1.4,
@@ -803,9 +882,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: const Text(
-                    'Izinkan Akses Kamera',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  child: Text(
+                    isUnavailable ? 'Coba Lagi' : 'Izinkan Akses Kamera',
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                   ),
                 ),
               ),
@@ -877,6 +956,43 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
     );
   }
 
+  Widget _buildCameraGuideBadge(String exerciseName, {bool compact = false}) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 5 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: compact
+            ? Colors.white.withValues(alpha: 0.92)
+            : const Color(0xFFE8F9F3),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: compact ? AppColors.border : const Color(0xFFBCEBDC),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.accessibility_new_rounded,
+            size: compact ? 13 : 15,
+            color: const Color(0xFF007A58),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            ExercisePoseAnalyzer.cameraGuideFor(exerciseName),
+            style: TextStyle(
+              color: const Color(0xFF007A58),
+              fontSize: compact ? 11 : 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // 1. COUNTDOWN PHASE (Light Theme sesuai SDD with Animated Preview)
   Widget _buildCountdownPhase() {
     final lottieAsset = _getExerciseLottieAsset(_currentExerciseName);
@@ -932,7 +1048,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                     color: AppColors.textMain,
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 8),
+                _buildCameraGuideBadge(_currentExerciseName),
+                const SizedBox(height: 12),
 
                 // Enlarged borderless Lottie animation
                 SizedBox(
@@ -993,7 +1111,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Exercise ${_currentExerciseIndex + 1} of ${_exercises.length}',
+                        _totalSets > 1
+                            ? 'Set $_currentSet/$_totalSets • Exercise ${_currentExerciseIndex + 1} of ${_exercises.length}'
+                            : 'Exercise ${_currentExerciseIndex + 1} of ${_exercises.length}',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -1061,40 +1181,58 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE8F9F3),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: const Color(0xFFBCEBDC)),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: AppColors.primary,
-                                        shape: BoxShape.circle,
-                                      ),
+                              GestureDetector(
+                                key: const Key('ai_tracker_debug_toggle'),
+                                onTap: _toggleDebugManualControls,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: _showDebugManualControls && kDebugMode
+                                        ? const Color(0xFFFEF3C7)
+                                        : const Color(0xFFE8F9F3),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _showDebugManualControls && kDebugMode
+                                          ? const Color(0xFFF59E0B)
+                                          : const Color(0xFFBCEBDC),
                                     ),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      'AI Pose Tracker Active',
-                                      style: TextStyle(
-                                        color: Color(0xFF007A58),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: _showDebugManualControls && kDebugMode
+                                              ? const Color(0xFFD97706)
+                                              : AppColors.primary,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _showDebugManualControls && kDebugMode
+                                            ? 'AI Pose Tracker Active (Debug)'
+                                            : 'AI Pose Tracker Active',
+                                        style: TextStyle(
+                                          color: _showDebugManualControls && kDebugMode
+                                              ? const Color(0xFFB45309)
+                                              : const Color(0xFF007A58),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
+                              const SizedBox(height: 6),
+                              _buildCameraGuideBadge(_currentExerciseName, compact: true),
                               if (_cameraState == _CameraPipelineState.active) ...[
                                 const SizedBox(height: 6),
                                 Container(
-                                  constraints: const BoxConstraints(maxWidth: 210),
+                                  constraints: const BoxConstraints(maxWidth: 215),
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                   decoration: BoxDecoration(
                                     color: Colors.white.withValues(alpha: 0.9),
@@ -1201,29 +1339,57 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                                   ),
                                 ),
                                 const SizedBox(height: 6),
-                                if (_isTimedExercise)
+                                if (_isTimedExercise) ...[
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Text(
                                         '${_timedSecondsRemaining}s',
-                                        style: const TextStyle(
-                                          color: AppColors.primary,
+                                        style: TextStyle(
+                                          color: _cameraState == _CameraPipelineState.active &&
+                                                  !_isHoldingPlankForm
+                                              ? const Color(0xFFD97706)
+                                              : AppColors.primary,
                                           fontSize: 36,
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                       const SizedBox(width: 8),
-                                      const Text(
-                                        '/ 30s remaining',
-                                        style: TextStyle(
+                                      Text(
+                                        '/ ${_plankDurationSeconds}s remaining',
+                                        style: const TextStyle(
                                           color: AppColors.textMuted,
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
-                                  )
+                                  ),
+                                  if (_cameraState == _CameraPipelineState.active) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _isHoldingPlankForm
+                                            ? const Color(0xFFE8F9F3)
+                                            : const Color(0xFFFEF3C7),
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Text(
+                                        _isHoldingPlankForm
+                                            ? 'HOLDING • Timer running'
+                                            : 'PAUSED • Hold valid plank form',
+                                        style: TextStyle(
+                                          color: _isHoldingPlankForm
+                                              ? const Color(0xFF007A58)
+                                              : const Color(0xFFB45309),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ]
                                 else
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -1258,35 +1424,40 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
               ),
             ),
 
-            // INTERACTIVE ACTION / FALLBACK BUTTON
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-              child: SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _incrementRep,
-                  icon: Icon(
-                    _isTimedExercise ? Icons.fast_forward_rounded : Icons.add_circle_outline_rounded,
-                    size: 20,
-                  ),
-                  label: Text(
-                    _isTimedExercise
-                        ? 'Complete Plank'
-                        : (_cameraState == _CameraPipelineState.active
-                            ? 'Manual +1 Rep'
-                            : '+1 Rep (Tap / Detected)'),
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            // INTERACTIVE ACTION / FALLBACK BUTTON (Headless tests or explicit Debug toggle)
+            if (_shouldShowManualActionButton)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: _incrementRep,
+                    icon: Icon(
+                      _isTimedExercise ? Icons.fast_forward_rounded : Icons.add_circle_outline_rounded,
+                      size: 20,
+                    ),
+                    label: Text(
+                      _cameraState == _CameraPipelineState.fallbackSimulation
+                          ? (_isTimedExercise
+                              ? 'Complete Plank'
+                              : '+1 Rep (Tap / Detected)')
+                          : (_isTimedExercise
+                              ? 'Complete Plank (Debug)'
+                              : 'Manual +1 Rep (Debug)'),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              )
+            else
+              const SizedBox(height: 14),
           ],
         ),
 
@@ -1365,9 +1536,11 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
 
   // 3. REST INTERVAL PHASE (Clean Light Theme per SDD with Animated Preview)
   Widget _buildRestPhase() {
-    final nextExercise = (_currentExerciseIndex + 1 < _exercises.length)
+    final bool isNextNewSet = _currentExerciseIndex + 1 >= _exercises.length;
+    final nextExercise = !isNextNewSet
         ? _exercises[_currentExerciseIndex + 1]
-        : 'Final stretch';
+        : (_currentSet < _totalSets ? _exercises.first : 'Final stretch');
+    final nextSetNumber = isNextNewSet ? _currentSet + 1 : _currentSet;
     final lottieAsset = _getExerciseLottieAsset(nextExercise);
 
     return Stack(
@@ -1435,7 +1608,22 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                   nextExercise,
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textMain),
                 ),
-                const SizedBox(height: 14),
+                if (_totalSets > 1) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Set $nextSetNumber of $_totalSets',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+                if (nextExercise != 'Final stretch') ...[
+                  const SizedBox(height: 8),
+                  _buildCameraGuideBadge(nextExercise),
+                ],
+                const SizedBox(height: 12),
 
                 // Enlarged borderless Lottie animation
                 SizedBox(
@@ -1579,7 +1767,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen>
                   _buildSummaryMetric(
                     icon: Icons.fitness_center_rounded,
                     label: 'Exercises',
-                    value: '${_exercises.length}/${_exercises.length}',
+                    value: '${_exercises.length * _totalSets}/${_exercises.length * _totalSets}',
                   ),
                   Container(width: 1, height: 40, color: const Color(0xFFEEF2F0)),
                   _buildSummaryMetric(

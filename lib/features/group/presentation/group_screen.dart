@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/user_progress_service.dart';
+import '../../dashboard/domain/workout_plan_model.dart';
+import '../../profile/presentation/upgrade_pro_sheet.dart';
 import 'group_history_screen.dart';
 
 class GroupScreen extends StatefulWidget {
@@ -24,11 +28,16 @@ class GroupScreen extends StatefulWidget {
   final int streakDays;
   final int? initialRestoresLeft;
   final bool? isPastDeadline;
+  final bool? isRestoreDeadlineExpired;
   final bool isPro;
   final DateTime? cooldownUntil;
+  final DateTime? groupCreatedAt;
+  final String workoutDifficulty;
   final List<WorkoutHistoryEntry> workoutHistory;
   final VoidCallback? onUpgradePro;
+  final Future<bool> Function(String planLabel)? onProcessUpgradePayment;
   final ValueChanged<int>? onRestoreQuotaChanged;
+  final ValueChanged<String>? onDifficultyChanged;
 
   const GroupScreen({
     super.key,
@@ -44,11 +53,16 @@ class GroupScreen extends StatefulWidget {
     this.maxMembers = 4,
     this.initialRestoresLeft,
     this.isPastDeadline,
+    this.isRestoreDeadlineExpired,
     this.isPro = false,
     this.cooldownUntil,
+    this.groupCreatedAt,
+    this.workoutDifficulty = 'Intermediate',
     this.workoutHistory = const [],
     this.onUpgradePro,
+    this.onProcessUpgradePayment,
     this.onRestoreQuotaChanged,
+    this.onDifficultyChanged,
     this.onBackPressed,
     this.onHistoryTap,
     this.onJoinGroup,
@@ -81,13 +95,14 @@ class GroupMemberItem {
   });
 }
 
-class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStateMixin {
-  String _selectedPlan = 'Intermediate';
-
+class _GroupScreenState extends State<GroupScreen>
+    with SingleTickerProviderStateMixin {
   // State untuk Join/Create Tab (saat hasGroup == false)
   int _noGroupTab = 0; // 0 = Join Group, 1 = Create Group
-  final TextEditingController _joinCodeController = TextEditingController(text: 'WOK-882');
-  final TextEditingController _createNameController = TextEditingController(text: 'gerup ketat');
+  final TextEditingController _joinCodeController =
+      TextEditingController(text: 'WOK-882');
+  final TextEditingController _createNameController =
+      TextEditingController(text: 'gerup ketat');
   String _createDifficulty = 'Intermediate';
   int _createCapacity = 4;
   String? _joinFeedback;
@@ -96,6 +111,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
   late bool _isLeaderMode;
   late List<GroupMemberItem> _members;
   late int _restoresLeft;
+  late String _currentDifficulty;
   bool _isStreakRestored = false;
   bool _isPro = false;
 
@@ -107,6 +123,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
     super.initState();
     _isLeaderMode = widget.isLeader;
     _isPro = widget.isPro;
+    _currentDifficulty = widget.workoutDifficulty;
     _restoresLeft = widget.initialRestoresLeft ?? (_isPro ? 5 : 3);
     _initMembers();
 
@@ -115,11 +132,26 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
       duration: const Duration(milliseconds: 500),
     );
     _jiggleAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween<double>(begin: 0.0, end: -0.15).chain(CurveTween(curve: Curves.easeOut)), weight: 15),
-      TweenSequenceItem(tween: Tween<double>(begin: -0.15, end: 0.15).chain(CurveTween(curve: Curves.easeInOut)), weight: 25),
-      TweenSequenceItem(tween: Tween<double>(begin: 0.15, end: -0.10).chain(CurveTween(curve: Curves.easeInOut)), weight: 25),
-      TweenSequenceItem(tween: Tween<double>(begin: -0.10, end: 0.08).chain(CurveTween(curve: Curves.easeInOut)), weight: 20),
-      TweenSequenceItem(tween: Tween<double>(begin: 0.08, end: 0.0).chain(CurveTween(curve: Curves.easeIn)), weight: 15),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.0, end: -0.15)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 15),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: -0.15, end: 0.15)
+              .chain(CurveTween(curve: Curves.easeInOut)),
+          weight: 25),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.15, end: -0.10)
+              .chain(CurveTween(curve: Curves.easeInOut)),
+          weight: 25),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: -0.10, end: 0.08)
+              .chain(CurveTween(curve: Curves.easeInOut)),
+          weight: 20),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.08, end: 0.0)
+              .chain(CurveTween(curve: Curves.easeIn)),
+          weight: 15),
     ]).animate(_jiggleController);
   }
 
@@ -140,11 +172,169 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         }
       });
     }
-    if (oldWidget.initialRestoresLeft != widget.initialRestoresLeft && widget.initialRestoresLeft != null) {
+    if (oldWidget.initialRestoresLeft != widget.initialRestoresLeft &&
+        widget.initialRestoresLeft != null) {
       setState(() {
         _restoresLeft = widget.initialRestoresLeft!;
       });
     }
+    if (oldWidget.workoutDifficulty != widget.workoutDifficulty) {
+      setState(() {
+        _currentDifficulty = widget.workoutDifficulty;
+      });
+    }
+  }
+
+  void _showGroupDifficultySheet() {
+    if (!_isLeaderMode) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content:
+                const Text('Only your group leader can change the difficulty.'),
+            backgroundColor: const Color(0xFF1A1D1E),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      return;
+    }
+
+    String selected = WorkoutDifficultySpec.fromLabel(_currentDifficulty).label;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (modalContext, setModalState) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Workout Difficulty',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A1D1E),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Sets, target reps, and rest duration for your group routines.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 16),
+                for (final spec in WorkoutDifficultySpec.all) ...[
+                  GestureDetector(
+                    onTap: () => setModalState(() => selected = spec.label),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: selected == spec.label
+                            ? const Color(0xFFE8F9F3)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: selected == spec.label
+                              ? const Color(0xFF00D09E)
+                              : const Color(0xFFE6ECE8),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  spec.label,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF1A1D1E),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  spec.summaryLabel,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF6B7280),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            selected == spec.label
+                                ? Icons.radio_button_checked_rounded
+                                : Icons.radio_button_off_rounded,
+                            color: selected == spec.label
+                                ? const Color(0xFF00D09E)
+                                : const Color(0xFFCBD5E1),
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      setState(() {
+                        _currentDifficulty = selected;
+                      });
+                      widget.onDifficultyChanged?.call(selected);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00D09E),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Text(
+                      'Apply Difficulty',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _initMembers() {
@@ -215,7 +405,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           'Remove ${member.name}?',
-          style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
+          style: const TextStyle(
+              fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
         ),
         content: Text(
           'Are you sure you want to remove ${member.name} from ${widget.groupName}?\n\nIf all remaining members have completed today\'s workout, the group streak will immediately reignite.',
@@ -224,7 +415,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w600)),
+            child: const Text('Cancel',
+                style: TextStyle(
+                    color: Color(0xFF6B7280), fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -238,9 +431,11 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
               backgroundColor: const Color(0xFFEF4444),
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Kick Member', style: TextStyle(fontWeight: FontWeight.w700)),
+            child: const Text('Kick Member',
+                style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -252,7 +447,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
       _members.removeWhere((m) => m.id == member.id);
     });
 
-    final allRemainingDone = _members.isNotEmpty && _members.every((m) => m.isDone);
+    final allRemainingDone =
+        _members.isNotEmpty && _members.every((m) => m.isDone);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -320,7 +516,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                       _isLeaderMode
                           ? 'Select a member to remove from this streak group.'
                           : 'You are currently a Member. Only leaders can remove members.',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFF6B7280)),
                     ),
                     const SizedBox(height: 16),
                     ..._members.map((member) {
@@ -347,10 +544,13 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          member.isCurrentUser ? 'You' : member.name,
+                                          member.isCurrentUser
+                                              ? 'You'
+                                              : member.name,
                                           style: const TextStyle(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w700,
@@ -364,7 +564,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                           style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w600,
-                                            color: member.isLeader ? const Color(0xFF00D09E) : const Color(0xFF8C949D),
+                                            color: member.isLeader
+                                                ? const Color(0xFF00D09E)
+                                                : const Color(0xFF8C949D),
                                           ),
                                         ),
                                       ],
@@ -389,15 +591,19 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   backgroundColor: const Color(0xFFFEF2F2),
                                   foregroundColor: const Color(0xFFDC2626),
                                   elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 6),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
-                                    side: const BorderSide(color: Color(0xFFFCA5A5)),
+                                    side: const BorderSide(
+                                        color: Color(0xFFFCA5A5)),
                                   ),
                                 ),
                                 child: const Text(
                                   'Remove',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700),
                                 ),
                               )
                             else
@@ -462,472 +668,113 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
     );
   }
 
-  // MODAL / BOTTOM SHEET: WORKOUT PLAN SETTINGS (Identik 1:1 dengan group_screen.html #settingsModal)
-  void _showWorkoutPlanModal() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Workout Plan Settings',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF1A1D1E),
-                            ),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Personal difficulty for your daily routines',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF6B7280),
-                            ),
-                          ),
-                        ],
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3F4F6),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.close, size: 16, color: Color(0xFF6B7280)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  _buildDiffOption('Beginner', 'Squat • Knee Push-up • Wall Sit', setModalState),
-                  const SizedBox(height: 10),
-                  _buildDiffOption('Intermediate', 'Squat • Push-up • Calisthenics Routine', setModalState),
-                  const SizedBox(height: 10),
-                  _buildDiffOption('Advanced', 'Pistol Squat • Diamond Push-up • Handstand', setModalState),
-                  const SizedBox(height: 16),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 46,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {});
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00D09E),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      child: const Text(
-                        'Save Changes',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildDiffOption(String title, String subtitle, StateSetter setModalState) {
-    final isSelected = _selectedPlan == title;
-
-    return GestureDetector(
-      onTap: () => setModalState(() => _selectedPlan = title),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE6ECE8),
-            width: 1.5,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1A1D1E),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              ],
-            ),
-            Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSelected ? const Color(0xFF00D09E) : Colors.transparent,
-                border: Border.all(
-                  color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFD1D5DB),
-                  width: 2,
-                ),
-              ),
-              child: isSelected
-                  ? const Center(
-                      child: Icon(Icons.circle, size: 8, color: Colors.white),
-                    )
-                  : null,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _onRestoreStreakTapped() {
-    if (_restoresLeft > 0) {
-      setState(() {
-        _restoresLeft--;
-        _isStreakRestored = true;
-      });
-      widget.onRestoreQuotaChanged?.call(_restoresLeft);
-      HapticFeedback.mediumImpact();
-      _jiggleController.forward(from: 0.0);
+    if (widget.isRestoreDeadlineExpired == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Streak restored! $_restoresLeft restores left this month.'),
+          content: const Text(
+              'Waktu habis: batas restore grup jam 13.00 telah terlewati.'),
+          duration: const Duration(seconds: 3),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    if (_restoresLeft <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Kuota restore bulan ini tidak cukup.'),
           duration: const Duration(seconds: 2),
           backgroundColor: const Color(0xFF1A1D1E),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
-    } else {
       _showUpgradeProModal();
+      return;
     }
-  }
 
-  void _showUpgradeProModal() {
-    int selectedPlanIndex = 1; // 0 = Monthly, 1 = Yearly (Best Value)
-    showModalBottomSheet(
+    showDialog<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setModalState) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Restore Group Streak?',
+          style:
+              TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
+        ),
+        content: Text(
+          'Use 1 monthly restore quota ($_restoresLeft left this month) to restore ${widget.groupName}\'s streak today?',
+          style: const TextStyle(
+              fontSize: 13, color: Color(0xFF6B7280), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('cancel_restore_streak_btn'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                  color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
             ),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE5E7EB),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF7ED),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.workspace_premium_rounded,
-                        color: Color(0xFFFF9800),
-                        size: 26,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'StreakWok Pro',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF1A1D1E),
-                            ),
-                          ),
-                          Text(
-                            'Never lose your group streak again',
-                            style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildProBenefitItem(
-                  Icons.replay_rounded,
-                  '5 Streak Restores per Month',
-                  'Extra chances to keep your group streak alive',
-                ),
-                _buildProBenefitItem(
-                  Icons.groups_rounded,
-                  '10 Members Group Capacity',
-                  'Workout with your entire squad',
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildPlanOption(
-                        title: 'Monthly',
-                        price: 'Rp 29.000',
-                        period: '/ month',
-                        isSelected: selectedPlanIndex == 0,
-                        onTap: () => setModalState(() => selectedPlanIndex = 0),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildPlanOption(
-                        title: 'Yearly',
-                        price: 'Rp 199.000',
-                        period: '/ year',
-                        badge: 'Save 40%',
-                        isSelected: selectedPlanIndex == 1,
-                        onTap: () => setModalState(() => selectedPlanIndex = 1),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    key: const Key('confirm_upgrade_pro_btn'),
-                    onPressed: () {
-                      Navigator.of(sheetContext).pop();
-                      setState(() {
-                        _isPro = true;
-                        _restoresLeft = 5;
-                        _isStreakRestored = true;
-                      });
-                      widget.onUpgradePro?.call();
-                      widget.onRestoreQuotaChanged?.call(5);
-                      HapticFeedback.mediumImpact();
-                      _jiggleController.forward(from: 0.0);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Upgraded to StreakWok Pro! 5 restores per month & 10-member capacity unlocked.'),
-                          duration: Duration(seconds: 3),
-                          backgroundColor: Color(0xFF1A1D1E),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00D09E),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Upgrade to Pro',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Center(
-                  child: GestureDetector(
-                    onTap: () => Navigator.of(sheetContext).pop(),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 4),
-                      child: Text(
-                        'Maybe Later',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildProBenefitItem(IconData icon, String title, String desc) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F9F3),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 18, color: const Color(0xFF00D09E)),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1A1D1E),
-                  ),
+          ElevatedButton(
+            key: const Key('confirm_restore_streak_btn'),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              setState(() {
+                _restoresLeft--;
+                _isStreakRestored = true;
+              });
+              widget.onRestoreQuotaChanged?.call(_restoresLeft);
+              HapticFeedback.mediumImpact();
+              _jiggleController.forward(from: 0.0);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Streak restored! $_restoresLeft restores left this month.'),
+                  duration: const Duration(seconds: 2),
+                  backgroundColor: const Color(0xFF1A1D1E),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
-                Text(
-                  desc,
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
-                ),
-              ],
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00D09E),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
+            child: const Text('Restore',
+                style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPlanOption({
-    required String title,
-    required String price,
-    required String period,
-    String? badge,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE8F9F3) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE5E7EB),
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: isSelected ? const Color(0xFF007A58) : const Color(0xFF1A1D1E),
-                  ),
-                ),
-                if (badge != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF5722),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      badge,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              price,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF1A1D1E),
-              ),
-            ),
-            Text(
-              period,
-              style: const TextStyle(fontSize: 10, color: Color(0xFF6B7280)),
-            ),
-          ],
-        ),
-      ),
+  void _showUpgradeProModal() {
+    showUpgradeProBottomSheet(
+      context: context,
+      onUpgradeConfirmed: () {
+        setState(() {
+          _isPro = true;
+          _restoresLeft = 5;
+          _isStreakRestored = true;
+        });
+        widget.onUpgradePro?.call();
+        widget.onRestoreQuotaChanged?.call(5);
+        _jiggleController.forward(from: 0.0);
+      },
+      onProcessPayment: widget.onProcessUpgradePayment,
     );
   }
 
@@ -938,16 +785,20 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
           'Leave Group?',
-          style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
+          style:
+              TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
         ),
         content: Text(
           'Per SDD specifications, leaving "${widget.groupName}" triggers a 7-day cooldown before you can join another group.',
-          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280), height: 1.5),
+          style: const TextStyle(
+              fontSize: 13, color: Color(0xFF6B7280), height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
+            child: const Text('Cancel',
+                style:
+                    TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -960,9 +811,11 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
               backgroundColor: const Color(0xFFEF4444),
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Leave', style: TextStyle(fontWeight: FontWeight.w700)),
+            child: const Text('Leave',
+                style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -979,6 +832,14 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
   }
 
   void _handleJoinSubmit() {
+    if (widget.hasGroup) {
+      setState(() {
+        _isJoinError = true;
+        _joinFeedback = 'Anda sudah memiliki grup workout';
+      });
+      return;
+    }
+
     final remainingCooldown = _remainingCooldownDays;
     if (remainingCooldown > 0) {
       setState(() {
@@ -993,7 +854,7 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
     if (code == 'FULL99') {
       setState(() {
         _isJoinError = true;
-        _joinFeedback = 'Group FULL99 has reached max capacity (4/4 members).';
+        _joinFeedback = 'Grup sudah penuh (4/4 members).';
       });
       return;
     }
@@ -1023,6 +884,16 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
   }
 
   void _handleCreateSubmit() {
+    if (widget.hasGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda sudah memiliki grup workout'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     final name = _createNameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1101,43 +972,111 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                       children: [
                         // CARD 1: GROUP HERO & STREAK BANNER (group-hero-card)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                            border: Border.all(
+                                color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        widget.groupName,
-                                        style: const TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.w900,
-                                          color: Color(0xFF1A1D1E),
-                                          letterSpacing: -0.4,
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          widget.groupName,
+                                          style: const TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w900,
+                                            color: Color(0xFF1A1D1E),
+                                            letterSpacing: -0.4,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        widget.isLeader
-                                            ? 'Leader • Day ${widget.currentActiveDay} of 30'
-                                            : 'Member • Day ${widget.currentActiveDay} of 30',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                          color: Color(0xFF8C949D),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          widget.groupCreatedAt != null
+                                              ? '${widget.isLeader ? 'Leader' : 'Member'} • Day ${widget.currentActiveDay} of 30 • Started ${DateFormat('MMM d').format(widget.groupCreatedAt!)}'
+                                              : (widget.isLeader
+                                                  ? 'Leader • Day ${widget.currentActiveDay} of 30'
+                                                  : 'Member • Day ${widget.currentActiveDay} of 30'),
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Color(0xFF8C949D),
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 6),
+                                        GestureDetector(
+                                          key:
+                                              const Key('group_difficulty_btn'),
+                                          onTap: _showGroupDifficultySheet,
+                                          child: Builder(
+                                            builder: (context) {
+                                              final spec = WorkoutDifficultySpec
+                                                  .fromLabel(
+                                                _currentDifficulty,
+                                              );
+                                              return Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 10,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      const Color(0xFFE8F9F3),
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  border: Border.all(
+                                                    color:
+                                                        const Color(0xFFBCEBDC),
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Flexible(
+                                                      child: Text(
+                                                        '${spec.label} • ${spec.sets} sets',
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color:
+                                                              Color(0xFF007A58),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    if (_isLeaderMode) ...[
+                                                      const SizedBox(width: 3),
+                                                      const Icon(
+                                                        Icons
+                                                            .keyboard_arrow_down_rounded,
+                                                        size: 14,
+                                                        color:
+                                                            Color(0xFF007A58),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                  const SizedBox(width: 12),
                                   GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTap: () {
@@ -1150,9 +1089,16 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                         AnimatedBuilder(
                                           animation: _jiggleAnimation,
                                           builder: (context, child) {
-                                            final scale = 1.0 + (_jiggleController.value > 0
-                                                ? (0.28 * (1.0 - ((_jiggleController.value - 0.5).abs() * 2)))
-                                                : 0.0);
+                                            final scale = 1.0 +
+                                                (_jiggleController.value > 0
+                                                    ? (0.28 *
+                                                        (1.0 -
+                                                            ((_jiggleController
+                                                                            .value -
+                                                                        0.5)
+                                                                    .abs() *
+                                                                2)))
+                                                    : 0.0);
                                             return Transform.scale(
                                               scale: scale,
                                               child: Transform.rotate(
@@ -1165,7 +1111,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                             width: 52,
                                             height: 52,
                                             child: CustomPaint(
-                                              painter: _TikTokFlamePainter(isLit: isStreakLit),
+                                              painter: _TikTokFlamePainter(
+                                                  isLit: isStreakLit),
                                             ),
                                           ),
                                         ),
@@ -1175,7 +1122,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                           style: TextStyle(
                                             fontSize: 26,
                                             fontWeight: FontWeight.w900,
-                                            color: isStreakLit ? const Color(0xFFFF5722) : const Color(0xFF9CA3AF),
+                                            color: isStreakLit
+                                                ? const Color(0xFFFF5722)
+                                                : const Color(0xFF9CA3AF),
                                             letterSpacing: -0.5,
                                             height: 1.0,
                                           ),
@@ -1187,20 +1136,23 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                               ),
                               if (isStreakBroken) ...[
                                 const SizedBox(height: 12),
-                                const Divider(height: 1, color: Color(0xFFF1F5F3)),
+                                const Divider(
+                                    height: 1, color: Color(0xFFF1F5F3)),
                                 const SizedBox(height: 10),
                                 GestureDetector(
                                   key: const Key('restore_streak_btn'),
                                   onTap: _onRestoreStreakTapped,
                                   child: Container(
                                     width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 10),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFF00D09E),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: const [
                                         Icon(
                                           Icons.local_fire_department_rounded,
@@ -1230,11 +1182,13 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
 
                         // CARD 2: INVITE CODE CARD (invite-card)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 11),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                            border: Border.all(
+                                color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1266,7 +1220,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                               GestureDetector(
                                 onTap: _copyInviteCode,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 8),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFF00D09E),
                                     borderRadius: BorderRadius.circular(12),
@@ -1282,7 +1237,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                         ),
                                       ),
                                       SizedBox(width: 5),
-                                      Icon(Icons.copy_rounded, size: 13, color: Colors.white),
+                                      Icon(Icons.copy_rounded,
+                                          size: 13, color: Colors.white),
                                     ],
                                   ),
                                 ),
@@ -1297,7 +1253,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                         Row(
                           children: [
                             Expanded(
-                              child: _buildStatCard('Capacity', '${_members.length} / ${_isPro ? 10 : widget.maxMembers}'),
+                              child: _buildStatCard('Capacity',
+                                  '${_members.length} / ${_isPro ? 10 : widget.maxMembers}'),
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -1314,9 +1271,12 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                             ? 'StreakWok Pro: $_restoresLeft / 5 streak restores left this month.'
                                             : 'You have $_restoresLeft / 3 streak restores left this month.'),
                                         duration: const Duration(seconds: 2),
-                                        backgroundColor: const Color(0xFF1A1D1E),
+                                        backgroundColor:
+                                            const Color(0xFF1A1D1E),
                                         behavior: SnackBarBehavior.floating,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(10)),
                                       ),
                                     );
                                   }
@@ -1334,17 +1294,20 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
 
                         // CARD 4: THIS WEEK PROGRESS CARD (week-card)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 13),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                            border: Border.all(
+                                color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
                                     'This Week',
@@ -1382,17 +1345,20 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
 
                               // Dynamic Days grid row (S, M, T, W, T, F, S)
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: _buildThisWeekCircles(isDone),
                               ),
 
                               const SizedBox(height: 10),
-                              const Divider(height: 1, color: Color(0xFFF1F5F3)),
+                              const Divider(
+                                  height: 1, color: Color(0xFFF1F5F3)),
                               const SizedBox(height: 8),
 
                               // Week streak footer
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Row(
                                     children: [
@@ -1400,17 +1366,21 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                         width: 18,
                                         height: 18,
                                         child: CustomPaint(
-                                          painter: _TikTokFlamePainter(isLit: isStreakLit),
+                                          painter: _TikTokFlamePainter(
+                                              isLit: isStreakLit),
                                         ),
                                       ),
                                       const SizedBox(width: 6),
                                       RichText(
                                         text: TextSpan(
-                                          style: const TextStyle(fontSize: 13, color: Color(0xFF1A1D1E)),
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              color: Color(0xFF1A1D1E)),
                                           children: [
                                             TextSpan(
                                               text: '$streakDays ',
-                                              style: const TextStyle(fontWeight: FontWeight.w800),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w800),
                                             ),
                                             const TextSpan(text: 'Day Streak'),
                                           ],
@@ -1419,7 +1389,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                     ],
                                   ),
                                   Text(
-                                    widget.isLeader ? 'Group Best: $streakDays' : 'Group Best: 14',
+                                    widget.isLeader
+                                        ? 'Group Best: $streakDays'
+                                        : 'Group Best: 14',
                                     style: const TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
@@ -1436,17 +1408,20 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
 
                         // CARD 5: MEMBERS DETAIL LIST (members-card)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 13),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                            border: Border.all(
+                                color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
                                     'Group Members',
@@ -1473,9 +1448,10 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                 ],
                               ),
                               const SizedBox(height: 10),
-
                               for (int i = 0; i < _members.length; i++) ...[
-                                if (i > 0) const Divider(height: 12, color: Color(0xFFF1F5F3)),
+                                if (i > 0)
+                                  const Divider(
+                                      height: 12, color: Color(0xFFF1F5F3)),
                                 _buildMemberRow(
                                   initials: _members[i].initials,
                                   name: _members[i].name,
@@ -1499,7 +1475,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                               height: 48,
                               child: ElevatedButton.icon(
                                 onPressed: _showLeaveGroupDialog,
-                                icon: const Icon(Icons.logout_rounded, size: 16, color: Colors.white),
+                                icon: const Icon(Icons.logout_rounded,
+                                    size: 16, color: Colors.white),
                                 label: const Text(
                                   'Leave Group',
                                   style: TextStyle(
@@ -1512,7 +1489,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   backgroundColor: const Color(0xFFEF4444),
                                   foregroundColor: Colors.white,
                                   elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16)),
                                 ),
                               ),
                             ),
@@ -1534,7 +1512,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                   // TAMPILAN KETIKA BELUM ADA GRUP (Identik 1:1 dengan join_create_group.html)
                   : ListView(
                       key: const ValueKey('group_empty_list'),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 14),
                       children: [
                         // Hero Header
                         Center(
@@ -1547,7 +1526,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   color: const Color(0xFF00D09E),
                                   borderRadius: BorderRadius.circular(18),
                                 ),
-                                child: const Icon(Icons.group_outlined, color: Colors.white, size: 28),
+                                child: const Icon(Icons.group_outlined,
+                                    color: Colors.white, size: 28),
                               ),
                               const SizedBox(height: 12),
                               const Text(
@@ -1585,7 +1565,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                           decoration: BoxDecoration(
                             color: const Color(0xFFF1F5F3),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                            border: Border.all(
+                                color: const Color(0xFFE6ECE8), width: 1.5),
                           ),
                           child: Row(
                             children: [
@@ -1595,10 +1576,17 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   child: Container(
                                     height: 38,
                                     decoration: BoxDecoration(
-                                      color: _noGroupTab == 0 ? Colors.white : Colors.transparent,
+                                      color: _noGroupTab == 0
+                                          ? Colors.white
+                                          : Colors.transparent,
                                       borderRadius: BorderRadius.circular(10),
                                       boxShadow: _noGroupTab == 0
-                                          ? [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)]
+                                          ? [
+                                              BoxShadow(
+                                                  color: Colors.black
+                                                      .withOpacity(0.04),
+                                                  blurRadius: 4)
+                                            ]
                                           : null,
                                     ),
                                     child: Center(
@@ -1607,7 +1595,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w700,
-                                          color: _noGroupTab == 0 ? const Color(0xFF1A1D1E) : const Color(0xFF6B7280),
+                                          color: _noGroupTab == 0
+                                              ? const Color(0xFF1A1D1E)
+                                              : const Color(0xFF6B7280),
                                         ),
                                       ),
                                     ),
@@ -1620,10 +1610,17 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   child: Container(
                                     height: 38,
                                     decoration: BoxDecoration(
-                                      color: _noGroupTab == 1 ? Colors.white : Colors.transparent,
+                                      color: _noGroupTab == 1
+                                          ? Colors.white
+                                          : Colors.transparent,
                                       borderRadius: BorderRadius.circular(10),
                                       boxShadow: _noGroupTab == 1
-                                          ? [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)]
+                                          ? [
+                                              BoxShadow(
+                                                  color: Colors.black
+                                                      .withOpacity(0.04),
+                                                  blurRadius: 4)
+                                            ]
                                           : null,
                                     ),
                                     child: Center(
@@ -1632,7 +1629,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w700,
-                                          color: _noGroupTab == 1 ? const Color(0xFF1A1D1E) : const Color(0xFF6B7280),
+                                          color: _noGroupTab == 1
+                                              ? const Color(0xFF1A1D1E)
+                                              : const Color(0xFF6B7280),
                                         ),
                                       ),
                                     ),
@@ -1652,7 +1651,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                              border: Border.all(
+                                  color: const Color(0xFFE6ECE8), width: 1.5),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1695,12 +1695,16 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                 ],
                                 const Text(
                                   'Group Invite Code',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1D1E)),
                                 ),
                                 const SizedBox(height: 8),
                                 TextField(
                                   controller: _joinCodeController,
-                                  textCapitalization: TextCapitalization.characters,
+                                  textCapitalization:
+                                      TextCapitalization.characters,
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w800,
@@ -1711,46 +1715,54 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                     hintText: 'WOK-882',
                                     filled: true,
                                     fillColor: const Color(0xFFFAFCFB),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 14),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(14),
-                                      borderSide: const BorderSide(color: Color(0xFFE6ECE8)),
+                                      borderSide: const BorderSide(
+                                          color: Color(0xFFE6ECE8)),
                                     ),
                                     focusedBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(14),
-                                      borderSide: const BorderSide(color: Color(0xFF00D09E), width: 2),
+                                      borderSide: const BorderSide(
+                                          color: Color(0xFF00D09E), width: 2),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 14),
-
-                                // Quick Simulation Presets
-                                const Text(
-                                  'SIMULATION QUICK PRESETS:',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF64748B),
-                                    letterSpacing: 0.5,
+                                if (kDebugMode) ...[
+                                  const SizedBox(height: 14),
+                                  const Text(
+                                    'SIMULATION QUICK PRESETS:',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF64748B),
+                                      letterSpacing: 0.5,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: [
-                                    _buildSimPill('WOK-882', 'WOK-882 (Valid: gerup ketat)'),
-                                    _buildSimPill('FULL99', 'FULL99 (Group Full)'),
-                                    _buildSimPill('WAIT07', 'WAIT07 (On Cooldown)'),
-                                  ],
-                                ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      _buildSimPill('WOK-882',
+                                          'WOK-882 (Valid: gerup ketat)'),
+                                      _buildSimPill(
+                                          'FULL99', 'FULL99 (Group Full)'),
+                                      _buildSimPill(
+                                          'WAIT07', 'WAIT07 (On Cooldown)'),
+                                    ],
+                                  ),
+                                ],
 
                                 if (_joinFeedback != null) ...[
                                   const SizedBox(height: 12),
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: _isJoinError ? const Color(0xFFEF4444) : const Color(0xFF00D09E),
+                                      color: _isJoinError
+                                          ? const Color(0xFFEF4444)
+                                          : const Color(0xFF00D09E),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
@@ -1772,13 +1784,16 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF8FAF9),
                                     borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: const Color(0xFFE6ECE8)),
+                                    border: Border.all(
+                                        color: const Color(0xFFE6ECE8)),
                                   ),
                                   child: Column(
                                     children: [
-                                      _buildRuleItem('Instant synchronization to group\'s active day'),
+                                      _buildRuleItem(
+                                          'Instant synchronization to group\'s active day'),
                                       const SizedBox(height: 8),
-                                      _buildRuleItem('Max 4 members per workout group'),
+                                      _buildRuleItem(
+                                          'Max 4 members per workout group'),
                                     ],
                                   ),
                                 ),
@@ -1794,11 +1809,15 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                       backgroundColor: const Color(0xFF00D09E),
                                       foregroundColor: Colors.white,
                                       elevation: 0,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
                                     ),
                                     child: const Text(
                                       'Join Group',
-                                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700),
                                     ),
                                   ),
                                 ),
@@ -1813,31 +1832,41 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                              border: Border.all(
+                                  color: const Color(0xFFE6ECE8), width: 1.5),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
                                   'Group Name',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1D1E)),
                                 ),
                                 const SizedBox(height: 8),
                                 TextField(
                                   controller: _createNameController,
-                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1D1E)),
                                   decoration: InputDecoration(
                                     hintText: 'e.g. gerup ketat',
                                     filled: true,
                                     fillColor: const Color(0xFFFAFCFB),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 14),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(14),
-                                      borderSide: const BorderSide(color: Color(0xFFE6ECE8)),
+                                      borderSide: const BorderSide(
+                                          color: Color(0xFFE6ECE8)),
                                     ),
                                     focusedBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(14),
-                                      borderSide: const BorderSide(color: Color(0xFF00D09E), width: 2),
+                                      borderSide: const BorderSide(
+                                          color: Color(0xFF00D09E), width: 2),
                                     ),
                                   ),
                                 ),
@@ -1845,32 +1874,48 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
 
                                 const Text(
                                   'Target Difficulty',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1D1E)),
                                 ),
                                 const SizedBox(height: 8),
-                                _buildCreateDiffOption('Beginner', '3 sets • 8–10 reps • 45s rest (Light)'),
+                                _buildCreateDiffOption('Beginner',
+                                    '3 sets • 8–10 reps • 45s rest (Light)'),
                                 const SizedBox(height: 8),
-                                _buildCreateDiffOption('Intermediate', '3 sets • 15 reps • 30s rest (Moderate)'),
+                                _buildCreateDiffOption('Intermediate',
+                                    '3 sets • 15 reps • 30s rest (Moderate)'),
                                 const SizedBox(height: 8),
-                                _buildCreateDiffOption('Advanced', '4 sets • 20 reps • 20s rest (Intense)'),
+                                _buildCreateDiffOption('Advanced',
+                                    '4 sets • 20 reps • 20s rest (Intense)'),
                                 const SizedBox(height: 16),
 
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     const Text(
                                       'Group Capacity',
-                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF1A1D1E)),
                                     ),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF00D09E),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
-                                      child: const Text(
-                                        'Free Tier: 2–4 Members',
-                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                                      child: Text(
+                                        _isPro
+                                            ? 'Pro Tier: 2–10 Members'
+                                            : 'Free Tier: 2–4 Members',
+                                        style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.white),
                                       ),
                                     ),
                                   ],
@@ -1879,37 +1924,51 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
 
                                 // Stepper Container
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFFAFCFB),
                                     borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: const Color(0xFFE6ECE8), width: 1.5),
+                                    border: Border.all(
+                                        color: const Color(0xFFE6ECE8),
+                                        width: 1.5),
                                   ),
                                   child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       IconButton(
                                         onPressed: _createCapacity > 2
-                                            ? () => setState(() => _createCapacity--)
+                                            ? () => setState(
+                                                () => _createCapacity--)
                                             : null,
-                                        icon: const Icon(Icons.remove, size: 18),
+                                        icon:
+                                            const Icon(Icons.remove, size: 18),
                                       ),
                                       Column(
                                         children: [
                                           Text(
                                             '$_createCapacity',
-                                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A1D1E)),
+                                            style: const TextStyle(
+                                                fontSize: 20,
+                                                fontWeight: FontWeight.w800,
+                                                color: Color(0xFF1A1D1E)),
                                           ),
                                           const Text(
                                             'MEMBERS',
-                                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF8C949D)),
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF8C949D)),
                                           ),
                                         ],
                                       ),
                                       IconButton(
-                                        onPressed: _createCapacity < 4
-                                            ? () => setState(() => _createCapacity++)
-                                            : null,
+                                        onPressed:
+                                            _createCapacity < (_isPro ? 10 : 4)
+                                                ? () => setState(
+                                                    () => _createCapacity++)
+                                                : null,
                                         icon: const Icon(Icons.add, size: 18),
                                       ),
                                     ],
@@ -1924,13 +1983,16 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF8FAF9),
                                     borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: const Color(0xFFE6ECE8)),
+                                    border: Border.all(
+                                        color: const Color(0xFFE6ECE8)),
                                   ),
                                   child: Column(
                                     children: [
-                                      _buildRuleItem('You will automatically become the Group Leader'),
+                                      _buildRuleItem(
+                                          'You will automatically become the Group Leader'),
                                       const SizedBox(height: 8),
-                                      _buildRuleItem('Unique invite code generated automatically (e.g. WOK-882)'),
+                                      _buildRuleItem(
+                                          'Unique invite code generated automatically (e.g. WOK-882)'),
                                     ],
                                   ),
                                 ),
@@ -1946,11 +2008,15 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                                       backgroundColor: const Color(0xFF00D09E),
                                       foregroundColor: Colors.white,
                                       elevation: 0,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
                                     ),
                                     child: const Text(
                                       'Create Group',
-                                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700),
                                     ),
                                   ),
                                 ),
@@ -1986,7 +2052,10 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         ),
         child: Text(
           label,
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+          style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF475569)),
         ),
       ),
     );
@@ -2000,7 +2069,10 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF4B5563)),
+            style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF4B5563)),
           ),
         ),
       ],
@@ -2018,7 +2090,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
           color: isSelected ? Colors.white : const Color(0xFFFAFCFB),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFE6ECE8),
+            color:
+                isSelected ? const Color(0xFF00D09E) : const Color(0xFFE6ECE8),
             width: isSelected ? 2.0 : 1.5,
           ),
         ),
@@ -2030,12 +2103,18 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1A1D1E)),
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1D1E)),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF6B7280)),
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF6B7280)),
                 ),
               ],
             ),
@@ -2044,14 +2123,18 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
               height: 18,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isSelected ? const Color(0xFF00D09E) : Colors.transparent,
+                color:
+                    isSelected ? const Color(0xFF00D09E) : Colors.transparent,
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF00D09E) : const Color(0xFFCBD5E1),
+                  color: isSelected
+                      ? const Color(0xFF00D09E)
+                      : const Color(0xFFCBD5E1),
                   width: 2,
                 ),
               ),
               child: isSelected
-                  ? const Center(child: Icon(Icons.circle, size: 6, color: Colors.white))
+                  ? const Center(
+                      child: Icon(Icons.circle, size: 6, color: Colors.white))
                   : null,
             ),
           ],
@@ -2143,7 +2226,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: isPending ? const Color(0xFFF3F4F6) : const Color(0xFF00D09E),
+                  color: isPending
+                      ? const Color(0xFFF3F4F6)
+                      : const Color(0xFF00D09E),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Center(
@@ -2178,7 +2263,9 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: isLeader ? const Color(0xFF00D09E) : const Color(0xFF8C949D),
+                        color: isLeader
+                            ? const Color(0xFF00D09E)
+                            : const Color(0xFF8C949D),
                       ),
                     ),
                   ],
@@ -2194,7 +2281,8 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
-                color: isDone ? const Color(0xFFFF5722) : const Color(0xFFF3F4F6),
+                color:
+                    isDone ? const Color(0xFFFF5722) : const Color(0xFFF3F4F6),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -2213,11 +2301,13 @@ class _GroupScreenState extends State<GroupScreen> with SingleTickerProviderStat
                 borderRadius: BorderRadius.circular(8),
                 onTap: onKick,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF2F2),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFFCA5A5), width: 1),
+                    border:
+                        Border.all(color: const Color(0xFFFCA5A5), width: 1),
                   ),
                   child: const Text(
                     'Kick',
@@ -2254,7 +2344,10 @@ class _DayCircle extends StatelessWidget {
       children: [
         Text(
           dayName,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8C949D)),
+          style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF8C949D)),
         ),
         const SizedBox(height: 8),
         Container(

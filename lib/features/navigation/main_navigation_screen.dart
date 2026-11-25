@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
@@ -59,7 +60,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   Future<void> _loadUserProgress() async {
-    final progress = await UserProgressService.loadProgress(_accountKey);
+    final loaded = await UserProgressService.loadProgress(_accountKey);
+    final progress = loaded.syncForDate(DateTime.now());
+    if (progress != loaded) {
+      await UserProgressService.saveProgress(progress);
+    }
     final savedName = await UserProgressService.getSavedUsername(_accountKey);
     if (!mounted) return;
     setState(() {
@@ -159,6 +164,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   // MODAL 1: JOIN GROUP MODAL (Identik 1:1 dengan dashboard_screen.html #joinGroupModal)
   void _showJoinGroupModal(BuildContext context) {
+    if (_userProgress.hasGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda sudah memiliki grup workout'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     final codeController = TextEditingController(text: 'WOK-882');
     String? errorText;
 
@@ -272,41 +287,43 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Quick simulation presets (Identik dengan modal-presets di HTML)
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        const Text(
-                          'Presets: ',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF8C949D)),
-                        ),
-                        const SizedBox(width: 4),
-                        _buildPresetPill('WOK-882 (Valid)', () {
-                          setModalState(() {
-                            codeController.text = 'WOK-882';
-                            errorText = null;
-                          });
-                        }),
-                        const SizedBox(width: 4),
-                        _buildPresetPill('FULL99 (Full)', () {
-                          setModalState(() {
-                            codeController.text = 'FULL99';
-                            errorText = null;
-                          });
-                        }),
-                        const SizedBox(width: 4),
-                        _buildPresetPill('WAIT07 (Cooldown)', () {
-                          setModalState(() {
-                            codeController.text = 'WAIT07';
-                            errorText = null;
-                          });
-                        }),
-                      ],
+                  if (kDebugMode) ...[
+                    // Quick simulation presets (debug/demo only)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          const Text(
+                            'Presets: ',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF8C949D)),
+                          ),
+                          const SizedBox(width: 4),
+                          _buildPresetPill('WOK-882 (Valid)', () {
+                            setModalState(() {
+                              codeController.text = 'WOK-882';
+                              errorText = null;
+                            });
+                          }),
+                          const SizedBox(width: 4),
+                          _buildPresetPill('FULL99 (Full)', () {
+                            setModalState(() {
+                              codeController.text = 'FULL99';
+                              errorText = null;
+                            });
+                          }),
+                          const SizedBox(width: 4),
+                          _buildPresetPill('WAIT07 (Cooldown)', () {
+                            setModalState(() {
+                              codeController.text = 'WAIT07';
+                              errorText = null;
+                            });
+                          }),
+                        ],
+                      ),
                     ),
-                  ),
-
-                  const SizedBox(height: 18),
+                    const SizedBox(height: 18),
+                  ] else
+                    const SizedBox(height: 12),
 
                   // Submit Button
                   SizedBox(
@@ -331,7 +348,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         }
 
                         if (inputCode == 'FULL99') {
-                          setModalState(() => errorText = 'Group is full (Max 4 members reached)');
+                          setModalState(() => errorText = 'Grup sudah penuh (Max 4 members reached)');
                           return;
                         }
 
@@ -351,6 +368,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                             inviteCode: inputCode,
                             memberCount: 3,
                             maxMembers: 4,
+                            clearCooldown: true,
+                            groupCreatedAt:
+                                _userProgress.groupCreatedAt ?? DateTime.now(),
                           );
                           await _updateUserProgress(updated);
                           setState(() {
@@ -395,8 +415,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   // MODAL 2: CREATE GROUP MODAL (Identik 1:1 dengan dashboard_screen.html #createGroupModal)
   void _showCreateGroupModal(BuildContext context) {
+    if (_userProgress.hasGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda sudah memiliki grup workout'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     final nameController = TextEditingController(text: 'gerup ketat');
-    String selectedDifficulty = 'Intermediate';
+    String selectedDifficulty = _userProgress.workoutDifficulty;
+    final int maxCap = _userProgress.isPro ? 10 : 4;
     int capacity = 2;
     String? errorText;
 
@@ -440,8 +471,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     children: [
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
+                        children: [
+                          const Text(
                             'Create Group',
                             style: TextStyle(
                               fontSize: 16,
@@ -449,10 +480,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                               color: Color(0xFF1A1D1E),
                             ),
                           ),
-                          SizedBox(height: 2),
+                          const SizedBox(height: 2),
                           Text(
-                            'Free tier • 2 to 4 members',
-                            style: TextStyle(
+                            _userProgress.isPro
+                                ? 'Pro tier • 2 to 10 members'
+                                : 'Free tier • 2 to 4 members',
+                            style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                               color: Color(0xFF8C949D),
@@ -549,9 +582,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           color: const Color(0xFF00D09E),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Text(
-                          'Free Tier: 2–4 Members',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white),
+                        child: Text(
+                          _userProgress.isPro
+                              ? 'Pro Tier: 2–10 Members'
+                              : 'Free Tier: 2–4 Members',
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                       ),
                     ],
@@ -583,8 +618,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.add, size: 18),
-                          color: capacity < 4 ? const Color(0xFF1A1D1E) : Colors.grey.shade400,
-                          onPressed: capacity < 4 ? () => setModalState(() => capacity++) : null,
+                          color: capacity < maxCap ? const Color(0xFF1A1D1E) : Colors.grey.shade400,
+                          onPressed: capacity < maxCap ? () => setModalState(() => capacity++) : null,
                         ),
                       ],
                     ),
@@ -612,6 +647,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           inviteCode: randomCode,
                           memberCount: 1,
                           maxMembers: capacity,
+                          workoutDifficulty: selectedDifficulty,
+                          groupCreatedAt: DateTime.now(),
+                          clearCooldown: true,
                         );
                         await _updateUserProgress(updated);
                         setState(() {
@@ -625,7 +663,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         }
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Group "$gName" created! Invite code: $randomCode 🎉'),
+                            content: Text('Group "$gName" created! Invite code: $randomCode'),
                             backgroundColor: AppColors.primaryDark,
                           ),
                         );
@@ -728,6 +766,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       hasGroup: false,
       isLeader: false,
       cooldownUntil: cooldownEnd,
+      workoutDifficulty: 'Intermediate',
+      clearGroupCreatedAt: true,
     );
     await _updateUserProgress(updated);
 
@@ -741,6 +781,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _handleJoinGroupFromScreen(String code) async {
+    if (_userProgress.hasGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda sudah memiliki grup workout'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
     if (_userProgress.isOnCooldown()) return;
     final updated = _userProgress.copyWith(
       hasGroup: true,
@@ -749,8 +798,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       inviteCode: code,
       memberCount: 3,
       clearCooldown: true,
+      groupCreatedAt: _userProgress.groupCreatedAt ?? DateTime.now(),
     );
     await _updateUserProgress(updated);
+    if (!mounted) return;
     setState(() {
       _currentIndex = 1;
     });
@@ -767,6 +818,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _handleCreateGroupFromScreen(String name, String difficulty, int capacity) async {
+    if (_userProgress.hasGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda sudah memiliki grup workout'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
     final generatedCode = 'WOK-${Random().nextInt(900) + 100}';
     final updated = _userProgress.copyWith(
       hasGroup: true,
@@ -775,8 +835,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       inviteCode: generatedCode,
       memberCount: 1,
       maxMembers: capacity,
+      workoutDifficulty: difficulty,
+      groupCreatedAt: DateTime.now(),
+      clearCooldown: true,
     );
     await _updateUserProgress(updated);
+    if (!mounted) return;
     setState(() {
       _currentIndex = 1;
     });
@@ -789,6 +853,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
+  }
+
+  Future<void> _handleDifficultyChanged(String difficulty) async {
+    final updated = _userProgress.copyWith(workoutDifficulty: difficulty);
+    await _updateUserProgress(updated);
   }
 
   Future<void> _handleUpgradePro() async {
@@ -818,6 +887,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         hasGroup: _userProgress.hasGroup,
         groupName: _userProgress.groupName,
         isLeader: _userProgress.isLeader,
+        workoutDifficulty: _userProgress.hasGroup
+            ? _userProgress.workoutDifficulty
+            : 'Intermediate',
         onToggleWorkout: _onToggleWorkout,
         onAdvanceDay: _onAdvanceDay,
         onViewGroup: _switchToGroupTab,
@@ -841,9 +913,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         isPro: _userProgress.isPro,
         initialRestoresLeft: _userProgress.restoresLeft,
         cooldownUntil: _userProgress.cooldownUntil,
+        groupCreatedAt: _userProgress.groupCreatedAt,
+        workoutDifficulty: _userProgress.workoutDifficulty,
         workoutHistory: _userProgress.workoutHistory,
         onUpgradePro: _handleUpgradePro,
         onRestoreQuotaChanged: _handleRestoreQuotaChanged,
+        onDifficultyChanged: _handleDifficultyChanged,
         onBackPressed: () => _navigateToTab(0),
         onHistoryTap: () => _navigateToTab(2),
         onJoinGroup: _handleJoinGroupFromScreen,
